@@ -69,6 +69,101 @@ impl Value {
     }
 }
 
+/// Serialize a value as pretty JSON: 2-space indent, a trailing newline,
+/// matching `JSON.stringify(x, null, 2)` -- which is what writes
+/// `client.json` today (main.js), and what `ragnarok-stack serve` has to
+/// produce a file `getClientPaths()` can still read.
+///
+/// `Value`'s own `Display` deliberately prints a type name, not JSON (see its
+/// impl below), so this is the one place in the tree that turns a `Value`
+/// back into text -- and the one place that has to agree with `parse` well
+/// enough to round-trip.
+pub fn to_string_pretty(value: &Value) -> String {
+    let mut out = String::new();
+    write_pretty(value, 0, &mut out);
+    out.push('\n');
+    out
+}
+
+fn write_pretty(value: &Value, indent: usize, out: &mut String) {
+    match value {
+        Value::Null => out.push_str("null"),
+        Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Value::Number(n) => out.push_str(&format_number(*n)),
+        Value::String(s) => out.push_str(&quote(s)),
+        Value::Array(items) => {
+            if items.is_empty() {
+                out.push_str("[]");
+                return;
+            }
+            out.push_str("[\n");
+            let inner = indent + 2;
+            let last = items.len() - 1;
+            for (i, item) in items.iter().enumerate() {
+                out.push_str(&" ".repeat(inner));
+                write_pretty(item, inner, out);
+                if i != last {
+                    out.push(',');
+                }
+                out.push('\n');
+            }
+            out.push_str(&" ".repeat(indent));
+            out.push(']');
+        }
+        Value::Object(map) => {
+            if map.is_empty() {
+                out.push_str("{}");
+                return;
+            }
+            out.push_str("{\n");
+            let inner = indent + 2;
+            let last = map.len() - 1;
+            for (i, (k, v)) in map.iter().enumerate() {
+                out.push_str(&" ".repeat(inner));
+                out.push_str(&quote(k));
+                out.push_str(": ");
+                write_pretty(v, inner, out);
+                if i != last {
+                    out.push(',');
+                }
+                out.push('\n');
+            }
+            out.push_str(&" ".repeat(indent));
+            out.push('}');
+        }
+    }
+}
+
+/// `2048.0` is what `vm_ram_mib` would print as without this: every number
+/// this file ever writes is either a whole-MiB RAM size or a whole port, and
+/// JavaScript's `JSON.stringify` never prints a trailing `.0` for either.
+fn format_number(n: f64) -> String {
+    if n.is_finite() && n.fract() == 0.0 && n.abs() < 1e15 {
+        format!("{}", n as i64)
+    } else {
+        format!("{n}")
+    }
+}
+
+#[test]
+fn to_string_pretty_round_trips_and_omits_trailing_zero() {
+    let mut map = BTreeMap::new();
+    map.insert("mode".to_string(), Value::String("host".to_string()));
+    map.insert("lan".to_string(), Value::Bool(false));
+    map.insert("vm_ram_mib".to_string(), Value::Number(2048.0));
+    map.insert("tags".to_string(), Value::Array(vec![Value::Number(1.0), Value::Null]));
+    map.insert("empty_obj".to_string(), Value::Object(BTreeMap::new()));
+    map.insert("empty_arr".to_string(), Value::Array(Vec::new()));
+    let value = Value::Object(map);
+
+    let text = to_string_pretty(&value);
+    assert_eq!(parse(&text).unwrap(), value);
+    assert!(text.contains("2048"));
+    assert!(!text.contains("2048.0"));
+    assert!(text.ends_with('\n'));
+    assert!(text.contains("  \"mode\": \"host\""));
+}
+
 impl fmt::Display for Value {
     /// Only what an error message needs: the type, not the contents.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -432,6 +432,11 @@ the game has no button for — a homunculus that cannot be called or replaced, a
 character the server still thinks is online. `ragnarok-stack sql` is in the app
 you already have: **[docs/DATABASE.md](docs/DATABASE.md)**.
 
+Everything above assumes the app's own window. The same supervisor also runs a
+dedicated server on a Linux box with nobody sitting at it — no Electron, no
+GPU, just `ragnarok-stack serve` and a systemd unit:
+**[docs/HEADLESS_SERVER.md](docs/HEADLESS_SERVER.md)**.
+
 ---
 
 ## License

@@ -3,6 +3,8 @@
 //!   ragnarok-stack up|down|status|repair|logs [service] [tail]
 //!   ragnarok-stack backup <file> | restore <file>
 //!   ragnarok-stack backup --full <file> | restore --full <file>
+//!   ragnarok-stack serve [--config FILE] [--grf/--rdata/--official FILE] [--bgm DIR]
+//!                        [--era renewal|prerenewal] [--lan|--no-lan] [--ram MiB]
 //!
 //! This replaces scripts/stack.sh. It is a binary rather than a script because
 //! the app ships to Windows, which has no POSIX shell — and a second,
@@ -35,6 +37,7 @@ mod process_identity;
 mod registration;
 mod hosting;
 mod private_fs;
+mod serve;
 mod service_credentials;
 mod sign_in;
 mod remember;
@@ -55,7 +58,9 @@ const USAGE: &str = "usage: ragnarok-stack host-check|capture-crashes|hosting-ch
                      \x20      sql [--write] [--file <path>] [<statement>]\n\
                      \x20      accounts (private JSON request on stdin)\n\
                      \x20      cp (JSON request on stdin: characters|character|reset-position|delete-character)\n\
-                     \x20      link-assets <data.grf> [rdata.grf] [official_data.grf] [bgm-dir]";
+                     \x20      link-assets <data.grf> [rdata.grf] [official_data.grf] [bgm-dir]\n\
+                     \x20      serve [--config FILE] [--grf FILE] [--rdata FILE] [--official FILE]\n\
+                     \x20            [--bgm DIR] [--era renewal|prerenewal] [--lan|--no-lan] [--ram MiB]";
 
 /// The runtime tree, which is the directory containing bin/ and scripts/.
 ///
@@ -217,6 +222,10 @@ fn main() {
             None => Err("destination file required".into()),
         },
         "link-assets" => assets::link(&cfg, &args[1..]),
+        // Its own lock discipline: takes operation_lock around `up` and again
+        // around `down`, not for the whole time it runs in the foreground, so
+        // it is deliberately absent from the lock list above.
+        "serve" => serve::run(&cfg, &dk, &args[1..]),
         // Listing and toggling are separate from `up` so the Settings window
         // can show what is installed without starting a server.
         "mods" => {

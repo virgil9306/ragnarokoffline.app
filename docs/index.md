@@ -16,6 +16,9 @@ and game window in one icon.
   in nobody's GRF, and decide where new characters wake up.
 - **[Advanced features](ADVANCED_FEATURES.md)** — backups, disk usage, starting
   over, and the other things you never have to touch.
+- **[Running a dedicated server, headless](HEADLESS_SERVER.md)** —
+  `ragnarok-stack serve` on a Linux box with no window: KVM setup, the
+  AppImage, a systemd unit, and what it does not do.
 - **[Custom homunculus AI](CUSTOM_HOMUNCULUS_AI.md)** — installing AzzyAI or
   another homunculus and mercenary AI into your own client folder.
 
