@@ -5,6 +5,7 @@
 //!   ragnarok-stack backup --full <file> | restore --full <file>
 //!   ragnarok-stack serve [--config FILE] [--grf/--rdata/--official FILE] [--bgm DIR]
 //!                        [--era renewal|prerenewal] [--lan|--no-lan] [--ram MiB]
+//!   ragnarok-stack settings [get KEY | set KEY VALUE ... | apply | path | defaults | battle-conf]
 //!
 //! This replaces scripts/stack.sh. It is a binary rather than a script because
 //! the app ships to Windows, which has no POSIX shell — and a second,
@@ -38,6 +39,7 @@ mod registration;
 mod hosting;
 mod private_fs;
 mod serve;
+mod settings;
 mod service_credentials;
 mod sign_in;
 mod remember;
@@ -60,7 +62,8 @@ const USAGE: &str = "usage: ragnarok-stack host-check|capture-crashes|hosting-ch
                      \x20      cp (JSON request on stdin: characters|character|reset-position|delete-character)\n\
                      \x20      link-assets <data.grf> [rdata.grf] [official_data.grf] [bgm-dir]\n\
                      \x20      serve [--config FILE] [--grf FILE] [--rdata FILE] [--official FILE]\n\
-                     \x20            [--bgm DIR] [--era renewal|prerenewal] [--lan|--no-lan] [--ram MiB]";
+                     \x20            [--bgm DIR] [--era renewal|prerenewal] [--lan|--no-lan] [--ram MiB]\n\
+                     \x20      settings [get KEY|set KEY VALUE ...|apply|path|defaults|battle-conf]";
 
 /// The runtime tree, which is the directory containing bin/ and scripts/.
 ///
@@ -122,7 +125,9 @@ fn main() {
         return;
     }
 
-    let loaded = if verb == "link-assets" {
+    // `settings` is file work on the shared settings.json, like link-assets:
+    // it must run on a machine whose VM tooling is not installed yet.
+    let loaded = if verb == "link-assets" || verb == "settings" {
         Config::load_for_assets(project_root())
     } else {
         Config::load(project_root())
@@ -137,7 +142,9 @@ fn main() {
     // queue behind the others.
     let writes_sql = (verb == "sql" && args.iter().any(|a| a == "--write"))
         || (verb == "db" && args.get(1).map(String::as_str) == Some("apply"));
-    let _operation = if writes_sql || matches!(verb, "up" | "down" | "repair" | "backup" | "restore" | "accounts" | "secure-services" | "hosting-check" | "sharing-check" | "capture-crashes") {
+    // `settings set` and `settings apply` write files `up` reads.
+    let writes_settings = verb == "settings" && matches!(args.get(1).map(String::as_str), Some("set" | "apply"));
+    let _operation = if writes_sql || writes_settings || matches!(verb, "up" | "down" | "repair" | "backup" | "restore" | "accounts" | "secure-services" | "hosting-check" | "sharing-check" | "capture-crashes") {
         match operation_lock::acquire(&cfg.state) {
             Ok(lock) => Some(lock),
             Err(error) => fail(verb, &error),
@@ -226,6 +233,9 @@ fn main() {
         // around `down`, not for the whole time it runs in the foreground, so
         // it is deliberately absent from the lock list above.
         "serve" => serve::run(&cfg, &dk, &args[1..]),
+        // The settings the app's Settings window writes, from a terminal --
+        // for a headless server, the only Settings window there is.
+        "settings" => settings::command(&cfg.state, &args[1..]),
         // Listing and toggling are separate from `up` so the Settings window
         // can show what is installed without starting a server.
         "mods" => {
