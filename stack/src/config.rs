@@ -180,6 +180,15 @@ pub fn state_dir(root: &Path) -> PathBuf {
 ///
 /// A source checkout keeps the directory it always had.
 fn default_state(root: &Path, data_root: &Path) -> PathBuf {
+    // A packaged runtime anywhere else -- an AppImage extracted on a headless
+    // box for `ragnarok-stack serve` -- is still the app, and shares the
+    // app's state: settings.json, the era markers and the database's service
+    // credentials all live there, beside the client.json every run reads from
+    // the data root. package.sh writes APP_VERSION into every payload it
+    // builds; a source checkout has none.
+    if root.join("APP_VERSION").is_file() {
+        return data_root.join("state");
+    }
     let installed = data_root.join("runtime");
     // Canonicalised where both paths exist, because /Users and
     // /System/Volumes/Data/Users are the same directory and only one of them
@@ -279,6 +288,18 @@ mod tests {
 
     /// A source checkout keeps the directory it has always had, and nothing
     /// else is mistaken for an install.
+    #[test]
+    fn a_packaged_runtime_outside_the_data_root_shares_the_apps_state() {
+        let root = std::env::temp_dir().join(format!("ro-config-payload-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let data = Path::new("/data/Ragnarok Offline");
+        assert_eq!(default_state(&root, data), root.join(".ragnarokmac"));
+        std::fs::write(root.join("APP_VERSION"), "1.4.6\n").unwrap();
+        assert_eq!(default_state(&root, data), data.join("state"));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
     #[test]
     fn any_other_tree_keeps_its_own_state_directory() {
         let data = Path::new("/data/Ragnarok Offline");

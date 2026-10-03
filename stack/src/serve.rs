@@ -1,17 +1,23 @@
 //! `ragnarok-stack serve`: a headless front door for a Linux host with no
 //! Electron and no window.
 //!
-//! Electron's `start_stack` (electron/main.js:2200-2228) does five things
-//! before a player ever sees a boot page: write `client.json`, flip the era
-//! marker, unpack the translation textures, link the client's GRFs into the
-//! served root, bring the VM and containers up, and only then start the asset
-//! server -- which it then owns and watches with a private handshake
-//! (`--managed`, electron/asset-server.js). A systemd unit has none of that:
-//! no window to hold settings, no process to supervise the child for it. So
-//! `serve` does the same five things itself, in the same order, spawns the
-//! asset server unmanaged (matching scripts/cowork-dev.cjs, the existing
-//! non-Electron precedent), and holds the foreground until a signal -- or the
-//! asset server exiting on its own -- says to run `down` and stop.
+//! Electron's `start_stack` (electron/main.js) does this before a player ever
+//! sees a boot page: link the client's GRFs into the served root, write what
+//! settings.json implies for the server, bring the VM and containers up, and
+//! only then start the asset server -- which it then owns and watches with a
+//! private handshake (`--managed`, electron/asset-server.js). A systemd unit
+//! has none of that: no window to hold settings, no process to supervise the
+//! child for it. So `serve` does the same things itself, in the same order,
+//! spawns the asset server unmanaged, and holds the foreground until a signal
+//! -- or the asset server exiting on its own -- says to run `down` and stop.
+//!
+//! It reads and writes the same two files the app does, so a server set up in
+//! the app and one set up here are the same server:
+//!
+//! - `<data root>/client.json`: where the GRFs are, the VM's memory.
+//! - `<data root>/state/settings.json`: everything in the Settings window --
+//!   rates, era, hosting scope, client version. settings.rs turns it into the
+//!   battle config and markers, exactly as the app's JavaScript does.
 //!
 //! Kept deliberately free of anything Docker- or filesystem-shaped where it
 //! can be: arg parsing, precedence, the `client.json` merge, the link-assets
@@ -21,7 +27,9 @@
 
 use crate::config::{self, Config};
 use crate::docker::Docker;
+use crate::hosting::Scope;
 use crate::json::{self, Value};
+use crate::ports::Ports;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -42,7 +50,7 @@ struct Args {
     bgm: Option<String>,
     era: Option<String>,
     /// `Some` only when a flag said so: `--lan` or `--no-lan`. Absent, the
-    /// config file or the saved `client.json` decides, like every other key.
+    /// saved hosting scope decides, as it does for the app.
     lan: Option<bool>,
     ram: Option<u32>,
 }
@@ -84,8 +92,8 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     Ok(out)
 }
 
-/// `renewal` / `prerenewal` / `pre-renewal` -> whether the marker should be
-/// present. Anything else is named back to the caller rather than guessed at.
+/// `renewal` / `prerenewal` / `pre-renewal` -> settings.json's `prerenewal`.
+/// Anything else is named back to the caller rather than guessed at.
 fn normalize_era(raw: &str) -> Result<bool, String> {
     match raw {
         "renewal" => Ok(false),
@@ -97,7 +105,7 @@ fn normalize_era(raw: &str) -> Result<bool, String> {
 }
 
 /// `--era` beats an `"era"` key in the `--config` file; neither is required,
-/// and when both are absent the marker is left exactly as it was (a bare
+/// and when both are absent settings.json is left exactly as it was (a bare
 /// `serve` re-run must not silently flip a running install back to renewal).
 fn resolve_era(flag: Option<&str>, config_file_era: Option<&str>) -> Result<Option<bool>, String> {
     if let Some(f) = flag {
@@ -109,19 +117,24 @@ fn resolve_era(flag: Option<&str>, config_file_era: Option<&str>) -> Result<Opti
     Ok(None)
 }
 
-fn apply_era_marker(state: &Path, is_prerenewal: Option<bool>) -> Result<(), String> {
-    let Some(pre) = is_prerenewal else { return Ok(()) };
-    fs::create_dir_all(state).map_err(|e| format!("creating {}: {e}", state.display()))?;
-    let marker = state.join("prerenewal");
-    if pre {
-        fs::write(&marker, "").map_err(|e| format!("writing {}: {e}", marker.display()))
-    } else {
-        match fs::remove_file(&marker) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(format!("removing {}: {e}", marker.display())),
-        }
+/// What `serve` was asked to change in settings.json, the file the app's
+/// Settings window writes. Empty when nothing was asked, so a bare `serve`
+/// rewrites nothing.
+///
+/// `--lan` is the hosting scope, not just client.json's `lan`: the app reads
+/// LAN hosting from `hosting_scope` whenever settings.json has one
+/// (electron/hosting-policy.js), so writing only client.json would be a flag
+/// that silently did nothing on any install that ever pressed Apply.
+fn settings_update(is_prerenewal: Option<bool>, lan: Option<bool>) -> BTreeMap<String, Value> {
+    let mut update = BTreeMap::new();
+    if let Some(pre) = is_prerenewal {
+        update.insert("prerenewal".to_string(), Value::Bool(pre));
     }
+    if let Some(lan) = lan {
+        let scope = if lan { "lan" } else { "local" };
+        update.insert("hosting_scope".to_string(), Value::String(scope.to_string()));
+    }
+    update
 }
 
 /// `client.json` as it exists already (the common case: nothing there yet
@@ -157,13 +170,12 @@ fn require_object(v: Value, context: &str) -> Result<Value, String> {
 
 /// Merge order is flag > `--config` file > existing `client.json`, applied in
 /// that order so each later step's `insert` simply wins. Unknown keys already
-/// in `client.json` (anything Settings wrote that `serve` does not know
-/// about) survive because they are never removed, only overwritten.
+/// in `client.json` (anything the app wrote that `serve` does not know about)
+/// survive because they are never removed, only overwritten.
 ///
 /// `era` is deliberately not copied from the config file into the merged
-/// object: it belongs to the marker file (`apply_era_marker`), not to
-/// `client.json`'s schema, which `getClientPaths()` in main.js also does not
-/// carry it in.
+/// object: it belongs to settings.json (`prerenewal`), not to `client.json`'s
+/// schema, which `getClientPaths()` in main.js also does not carry it in.
 fn merge_client(existing: Value, config_file: Option<Value>, args: &Args) -> Value {
     let mut map = match existing {
         Value::Object(m) => m,
@@ -203,23 +215,55 @@ fn optional_str(v: &Value, key: &str) -> String {
     v.str(key).unwrap_or("").to_string()
 }
 
-/// What `up` is told, read back out of the merged `client.json` rather than
-/// from the flags, so a saved `"lan": true` or `"vm_ram_mib"` means the same
-/// thing to a bare `serve` as it does to the app's `withEngineFlags`
-/// (main.js:497). A RAM value that is not a positive whole number is left to
-/// config.toml, as the app does.
-fn engine_flags(client: &Value) -> (bool, Option<u32>) {
-    let lan = matches!(client.get("lan"), Some(Value::Bool(true)));
-    let ram = match client.get("vm_ram_mib") {
-        Some(Value::Number(n)) if *n >= 1.0 && n.fract() == 0.0 && *n <= u32::MAX as f64 => Some(*n as u32),
-        _ => None,
-    };
-    (lan, ram)
+/// Whether this host serves the LAN, decided exactly as the app decides it
+/// (electron/hosting-policy.js `effective`): settings.json's `hosting_scope`
+/// when it has one, client.json's `lan` when it does not. Friends and Public
+/// are the app's Cloudflare tunnel, which a headless server does not run, so
+/// both serve loopback here -- what the app's own asset server does for them.
+fn effective_lan(client: &Value, settings: &Value) -> Result<bool, String> {
+    if settings.get("hosting_scope").is_some() {
+        return Ok(Scope::from_settings(settings, false)?.lan());
+    }
+    match client.get("lan") {
+        None => Ok(false),
+        Some(Value::Bool(lan)) => Ok(*lan),
+        Some(_) => Err("Invalid LAN setting. Repair the saved hosting setting before starting.".into()),
+    }
 }
 
-/// The positional vector `assets::link` expects, exactly `main.js`:855's
-/// shape: an empty string keeps rdata's slot so official and bgm still land
-/// in theirs, and official is only pushed at all when something after it is.
+/// The VM's memory ceiling: client.json's `vm_ram_mib` when it is a positive
+/// whole number, otherwise what the app picks on a machine nobody has told it
+/// about (`defaultVmRamMib` in main.js) -- a quarter of the host, between 2 and
+/// 4 GiB. `None` only when the host's memory cannot be read, which leaves
+/// config.toml's value in place.
+fn ram_ceiling(client: &Value, host_mib: Option<u64>) -> Option<u32> {
+    match client.get("vm_ram_mib") {
+        Some(Value::Number(n)) if *n >= 1.0 && n.fract() == 0.0 && *n <= u32::MAX as f64 => Some(*n as u32),
+        _ => host_mib.map(|mib| (mib / 4).clamp(2048, 4096) as u32),
+    }
+}
+
+/// Total memory, in MiB, from the kernel. No crate: /proc on Linux, sysctl on
+/// macOS, and nothing on Windows, where the shipped default stands.
+fn host_ram_mib() -> Option<u64> {
+    if cfg!(target_os = "linux") {
+        let info = fs::read_to_string("/proc/meminfo").ok()?;
+        let line = info.lines().find(|l| l.starts_with("MemTotal:"))?;
+        let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+        Some(kib / 1024)
+    } else if cfg!(target_os = "macos") {
+        let out = Command::new("/usr/sbin/sysctl").args(["-n", "hw.memsize"]).output().ok()?;
+        let bytes: u64 = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
+        Some(bytes / (1024 * 1024))
+    } else {
+        None
+    }
+}
+
+/// The positional vector `assets::link` expects, exactly `linkClient`'s shape
+/// in main.js: an empty string keeps rdata's slot so official and bgm still
+/// land in theirs, and official is only pushed at all when something after it
+/// is.
 fn link_positional(data_grf: &str, rdata_grf: &str, official_grf: &str, bgm_dir: &str) -> Vec<String> {
     let mut out = vec![data_grf.to_string(), rdata_grf.to_string()];
     if !official_grf.is_empty() || !bgm_dir.is_empty() {
@@ -239,29 +283,29 @@ fn bracket(host: &str) -> String {
     }
 }
 
-fn public_url(advertise: &str) -> String {
-    format!("http://{}:3338", bracket(advertise))
+fn public_url(advertise: &str, port: u16) -> String {
+    format!("http://{}:{port}", bracket(advertise))
 }
 
 /// Login always names the host-side proxy's loopback; rAthena hands a
-/// connecting client its own char/map address, so those two follow `--lan`.
-/// Mirrors `proxyTargets` (main.js:754) including the final sort -- the two
-/// must agree on the wire, and roBrowser is handed this same list shape.
-fn ws_allowed_targets(advertise: &str, lan: bool) -> String {
+/// connecting client its own char/map address, so those two follow LAN.
+/// Mirrors `proxyTargets` and `gameTargets` (electron/ports.js) including the
+/// final sort -- the two must agree on the wire.
+fn ws_allowed_targets(advertise: &str, lan: bool, ports: &Ports) -> String {
     let backend = if lan { advertise } else { "127.0.0.1" };
     let mut targets = vec![
-        "127.0.0.1:6900".to_string(),
-        format!("{backend}:6121"),
-        format!("{backend}:5121"),
+        format!("127.0.0.1:{}", ports.login),
+        format!("{backend}:{}", ports.char),
+        format!("{backend}:{}", ports.map),
     ];
     targets.sort();
     targets.join(",")
 }
 
 /// The address other machines are told to come back to, straight from the
-/// `endpoint.json` `up` just wrote (cmds.rs:1637) -- the same file
-/// `advertiseHost()` reads in Electron, so a client is never told to go
-/// somewhere the WS proxy's allow-list will refuse.
+/// `endpoint.json` `up` just wrote -- the same file `advertiseHost()` reads in
+/// Electron, so a client is never told to go somewhere the WS proxy's
+/// allow-list will refuse.
 fn read_advertise_host(state: &Path) -> String {
     let path = state.join("endpoint.json");
     let Ok(body) = fs::read_to_string(&path) else {
@@ -278,13 +322,10 @@ fn read_trimmed(path: &Path) -> String {
 }
 
 /// FNV-1a, the same algorithm `assets.rs` already uses for its own
-/// fingerprints (`fnv`, assets.rs:366). The `RAGNAROK_*_ID` variables Electron
-/// sends the asset server are opaque to it: reading the pinned RemoteClient
-/// source (`config/REMOTECLIENT_PIN`) shows nothing in `Config::from_env`
-/// (src/config.rs) or anywhere else reads a `RAGNAROK_` variable except the
-/// literal string `RAGNAROK_ASSET_READY ` the managed protocol prints on
-/// stdout -- itself unrelated. There is no reason to hand-roll sha256 to
-/// match Electron's bytes when nothing ever compares them.
+/// fingerprints. The `RAGNAROK_*_ID` variables Electron sends the asset server
+/// are compared by Electron's managed-mode handshake, which `serve` does not
+/// use; the asset server itself never reads them. There is no reason to
+/// hand-roll sha256 to match Electron's bytes when nothing compares them.
 fn fnv_hex(bytes: &[u8]) -> String {
     let mut hash: u64 = 0xcbf29ce484222325;
     for b in bytes {
@@ -294,10 +335,10 @@ fn fnv_hex(bytes: &[u8]) -> String {
     format!("{hash:016x}")
 }
 
-/// Vars the caller's own environment wins for, matching `assetsStart()`
-/// (main.js:647-654): systemd's `Environment=` lines behave exactly like the
-/// `.env`/shell overrides Electron already respects, rather than being a
-/// second, competing source of the same setting.
+/// Vars the caller's own environment wins for, matching `assetsStart()`:
+/// systemd's `Environment=` lines behave exactly like the `.env`/shell
+/// overrides Electron already respects, rather than being a second, competing
+/// source of the same setting.
 const PASSTHROUGH_DEFAULTS: &[(&str, &str)] = &[
     ("ENABLE_COMPRESSION", "true"),
     ("CACHE_MAX_FILES", "5000"),
@@ -319,18 +360,18 @@ fn passthrough_env(lookup: &dyn Fn(&str) -> Option<String>) -> Vec<(String, Stri
 }
 
 /// The full environment for the asset server child, matching `assetsStart()`
-/// (main.js:617-662) key for key, minus `RAGNAROK_ASSET_SOURCES_ID` (see
-/// `fnv_hex`'s doc comment -- it, like its siblings, is read by nothing) and
-/// the managed-mode handshake, which `serve` does not use.
+/// in main.js key for key, minus `RAGNAROK_ASSET_SOURCES_ID` and the LAN
+/// remembered-login proxy (`APP_PROXY_*`), which is served by the app's own
+/// process and does not exist without it.
 fn build_env(cfg: &Config, lan: bool, advertise: &str) -> Vec<(String, String)> {
     let state = &cfg.state;
     let mut env = vec![
-        ("PORT".to_string(), "3338".to_string()),
+        ("PORT".to_string(), cfg.ports.asset.to_string()),
         (
             "HOST".to_string(),
             if lan { "0.0.0.0".to_string() } else { "127.0.0.1".to_string() },
         ),
-        ("CLIENT_PUBLIC_URL".to_string(), public_url(advertise)),
+        ("CLIENT_PUBLIC_URL".to_string(), public_url(advertise, cfg.ports.asset)),
         ("NODE_ENV".to_string(), "production".to_string()),
         ("SERVER_ROOT".to_string(), state.join("assets").to_string_lossy().into_owned()),
         ("CLIENT_RESPATH".to_string(), "resources/".to_string()),
@@ -346,7 +387,7 @@ fn build_env(cfg: &Config, lan: bool, advertise: &str) -> Vec<(String, String)> 
             "ROBROWSER_PATH".to_string(),
             cfg.root.join("vendor/roBrowserLegacy/dist/Web").to_string_lossy().into_owned(),
         ),
-        ("WS_ALLOWED_TARGETS".to_string(), ws_allowed_targets(advertise, lan)),
+        ("WS_ALLOWED_TARGETS".to_string(), ws_allowed_targets(advertise, lan, &cfg.ports)),
         (
             "DATA_OVERRIDE_PATH".to_string(),
             state.join("assets/.translation/data").to_string_lossy().into_owned(),
@@ -393,11 +434,10 @@ fn div_ceil(n: usize, d: usize) -> usize {
     (n + d - 1) / d
 }
 
-/// A tar reader ported from `extractTarLatin1` (main.js:261-303), field for
-/// field, decoding names as UTF-8 rather than Latin-1: the bytes this ever
-/// reads were already UTF-8 on the filesystem the archive was built from (see
-/// that function's own comment), and `serve` has no CP949 client tree to
-/// round-trip against, only these packaged tars.
+/// A tar reader ported from `extractTarLatin1` (main.js), field for field,
+/// decoding names as UTF-8 as that function does: the bytes this ever reads
+/// were already UTF-8 on the filesystem the archive was built from (see that
+/// function's own comment).
 ///
 /// Deliberately permissive in the same way the original is: an unsupported
 /// record type is skipped rather than refused, and a path that tries to climb
@@ -469,10 +509,10 @@ fn extract_tar(archive: &[u8], dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// `unpackTranslationData` (main.js:218-236), for one era. Electron runs this
-/// once, when a payload is installed; a headless run has no install step, so
-/// `serve` runs it itself, every time, and the "already unpacked" case (the
-/// common one, after the first run) is just an absent tar.
+/// `unpackTranslationData` (main.js), for one era. Electron runs this once,
+/// when a payload is installed; a headless run has no install step, so `serve`
+/// runs it itself, every time, and the "already unpacked" case (the common
+/// one, after the first run) is just an absent tar.
 fn unpack_translation_tar(cfg: &Config, era: &str) -> Result<(), String> {
     let dir = cfg.root.join("vendor/ROenglishRE/Translation").join(era);
     let archive = dir.join("data.tar");
@@ -494,10 +534,9 @@ mod signals {
     use super::SHUTDOWN;
     use std::sync::atomic::Ordering;
 
-    // libc is already linked (nebula and docker-slim need it); this is the
-    // one function of it stack/ uses, so it is declared rather than pulling
-    // in a crate for a single FFI call. Precedent: private_fs.rs's own
-    // `unsafe extern "C" { fn geteuid() -> u32; }`.
+    // libc is already linked; this is the one function of it `serve` uses, so
+    // it is declared rather than pulling in a crate for a single FFI call.
+    // Precedent: private_fs.rs's own extern declarations.
     unsafe extern "C" {
         fn signal(signum: i32, handler: usize) -> usize;
     }
@@ -551,17 +590,32 @@ pub fn run(cfg: &Config, dk: &Docker, args: &[String]) -> Result<(), String> {
             client_json_path.display()
         )
     })?;
-    let (lan, ram) = engine_flags(&client);
     let rdata_grf = optional_str(&client, "rdata_grf");
     let official_grf = optional_str(&client, "official_grf");
     let bgm_dir = optional_str(&client, "bgm_dir");
+    // Checked before anything is saved, as the app's setup window does: a
+    // mistyped --grf must not become the path every later bare `serve` uses.
+    for (label, file) in [("data.grf", &data_grf), ("rdata.grf", &rdata_grf), ("official_data.grf", &official_grf)] {
+        if !file.is_empty() && !Path::new(file).is_file() {
+            return Err(format!("{label} is not a file: {file}"));
+        }
+    }
+    if !bgm_dir.is_empty() && !Path::new(&bgm_dir).is_dir() {
+        return Err(format!("the BGM folder is not a folder: {bgm_dir}"));
+    }
 
-    fs::create_dir_all(config::data_root())
-        .map_err(|e| format!("creating {}: {e}", config::data_root().display()))?;
-    fs::write(&client_json_path, json::to_string_pretty(&client))
-        .map_err(|e| format!("writing {}: {e}", client_json_path.display()))?;
+    // Both files before anything starts, so whatever comes up is what they
+    // say -- and a refused value stops here, having changed nothing.
+    let update = settings_update(is_prerenewal, parsed.lan);
+    if !update.is_empty() {
+        crate::settings::save(&cfg.state, update)?;
+    }
+    crate::settings::write_atomic(&client_json_path, &json::to_string_pretty(&client))?;
 
-    apply_era_marker(&cfg.state, is_prerenewal)?;
+    // Settings first: link-assets reads the era marker this writes.
+    crate::settings::apply(&cfg.state)?;
+    let lan = effective_lan(&client, &crate::registration::settings(&cfg.state)?)?;
+    let ram = ram_ceiling(&client, host_ram_mib());
 
     for era in ["Renewal", "Pre-Renewal"] {
         unpack_translation_tar(cfg, era)?;
@@ -571,8 +625,8 @@ pub fn run(cfg: &Config, dk: &Docker, args: &[String]) -> Result<(), String> {
     crate::assets::link(cfg, &positional)?;
 
     // The lock is held only around `up`, not for `serve`'s whole lifetime:
-    // `sql`, `backup` and `status` from another terminal must still be able
-    // to queue behind it and run while the asset server is in the foreground.
+    // `sql`, `backup`, `status` and `settings set` from another terminal must
+    // still be able to run while the asset server is in the foreground.
     let started = {
         let _lock = crate::operation_lock::acquire(&cfg.state)?;
         crate::cmds::up(cfg, dk, lan, ram)
@@ -595,11 +649,12 @@ pub fn run(cfg: &Config, dk: &Docker, args: &[String]) -> Result<(), String> {
 
     if !lan {
         println!(
-            "Loopback only (no --lan): reachable at http://127.0.0.1:3338/ on this machine, \
-             or through an SSH tunnel / reverse proxy. Pass --lan for other machines to connect directly."
+            "Loopback only: reachable at {}/ on this machine, or through an SSH tunnel / \
+             reverse proxy. Pass --lan (or set hosting_scope to lan) for other machines to connect directly.",
+            public_url("127.0.0.1", cfg.ports.asset)
         );
     }
-    println!("Serving at {}/", public_url(&advertise));
+    println!("Serving at {}/", public_url(&advertise, cfg.ports.asset));
 
     let mut child = Command::new(&binary)
         .current_dir(&cfg.root)
@@ -718,8 +773,9 @@ mod tests {
     }
 
     #[test]
-    fn era_absent_from_both_leaves_the_marker_untouched() {
+    fn era_absent_from_both_leaves_settings_untouched() {
         assert_eq!(resolve_era(None, None), Ok(None));
+        assert!(settings_update(None, None).is_empty());
     }
 
     #[test]
@@ -727,22 +783,16 @@ mod tests {
         assert!(resolve_era(Some("classic"), None).is_err());
     }
 
+    // --- what serve writes into settings.json -----------------------------
+
     #[test]
-    fn era_marker_is_written_removed_or_left_alone() {
-        let state = std::env::temp_dir().join(format!("ro-serve-era-{}-{}", std::process::id(), line!()));
-        let marker = state.join("prerenewal");
-
-        apply_era_marker(&state, Some(true)).unwrap();
-        assert!(marker.exists());
-
-        apply_era_marker(&state, None).unwrap(); // left alone
-        assert!(marker.exists());
-
-        apply_era_marker(&state, Some(false)).unwrap();
-        assert!(!marker.exists());
-
-        apply_era_marker(&state, Some(false)).unwrap(); // removing twice is not an error
-        fs::remove_dir_all(&state).unwrap();
+    fn era_and_lan_land_in_the_settings_the_app_reads() {
+        let u = settings_update(Some(true), Some(true));
+        assert_eq!(u.get("prerenewal"), Some(&Value::Bool(true)));
+        assert_eq!(u.get("hosting_scope"), Some(&Value::String("lan".into())));
+        let u = settings_update(None, Some(false));
+        assert_eq!(u.get("hosting_scope"), Some(&Value::String("local".into())));
+        assert_eq!(u.get("prerenewal"), None);
     }
 
     // --- client.json merge -----------------------------------------------
@@ -791,31 +841,41 @@ mod tests {
     }
 
     #[test]
-    fn lan_and_ram_follow_the_same_precedence_as_everything_else() {
-        let existing = obj(&[("lan", Value::Bool(true)), ("vm_ram_mib", Value::Number(3072.0))]);
-        // A bare `serve` keeps what was saved, and tells `up` so.
-        let merged = merge_client(existing.clone(), None, &Args::default());
-        assert_eq!(engine_flags(&merged), (true, Some(3072)));
-
-        // A config file beats the saved file...
-        let config_file = obj(&[("lan", Value::Bool(false))]);
-        let merged = merge_client(existing.clone(), Some(config_file.clone()), &Args::default());
-        assert_eq!(engine_flags(&merged), (false, Some(3072)));
-
-        // ...and a flag beats both.
-        let mut args = Args::default();
-        args.lan = Some(true);
-        args.ram = Some(2048);
-        let merged = merge_client(existing, Some(config_file), &args);
-        assert_eq!(engine_flags(&merged), (true, Some(2048)));
-
-        // Nothing saved at all: loopback, and config.toml's RAM.
-        let merged = merge_client(Value::Object(BTreeMap::new()), None, &Args::default());
-        assert_eq!(engine_flags(&merged), (false, None));
-        assert_eq!(engine_flags(&obj(&[("vm_ram_mib", Value::Number(-1.0))])), (false, None));
+    fn ram_defaults_the_way_the_app_does() {
+        let none = Value::Object(BTreeMap::new());
+        // A quarter of the host, between 2 and 4 GiB.
+        assert_eq!(ram_ceiling(&none, Some(8192)), Some(2048));
+        assert_eq!(ram_ceiling(&none, Some(12288)), Some(3072));
+        assert_eq!(ram_ceiling(&none, Some(65536)), Some(4096));
+        assert_eq!(ram_ceiling(&none, None), None);
+        // A saved value is the player's and wins.
+        assert_eq!(ram_ceiling(&obj(&[("vm_ram_mib", Value::Number(6144.0))]), Some(8192)), Some(6144));
+        assert_eq!(ram_ceiling(&obj(&[("vm_ram_mib", Value::Number(-1.0))]), Some(8192)), Some(2048));
     }
 
-    // --- link-assets positional vector, matching main.js:855 -------------
+    // --- LAN, decided as hosting-policy.js decides it ---------------------
+
+    #[test]
+    fn the_saved_hosting_scope_beats_client_json() {
+        let lan_client = obj(&[("lan", Value::Bool(true))]);
+        let local = obj(&[("hosting_scope", Value::String("local".into()))]);
+        assert!(!effective_lan(&lan_client, &local).unwrap());
+        let lan = obj(&[("hosting_scope", Value::String("lan".into()))]);
+        assert!(effective_lan(&Value::Object(BTreeMap::new()), &lan).unwrap());
+        // Internet scopes are the app's tunnel; headless serves loopback.
+        let friends = obj(&[("hosting_scope", Value::String("friends".into()))]);
+        assert!(!effective_lan(&lan_client, &friends).unwrap());
+    }
+
+    #[test]
+    fn without_a_scope_client_json_decides() {
+        let none = Value::Object(BTreeMap::new());
+        assert!(effective_lan(&obj(&[("lan", Value::Bool(true))]), &none).unwrap());
+        assert!(!effective_lan(&none, &none).unwrap());
+        assert!(effective_lan(&obj(&[("lan", Value::String("yes".into()))]), &none).is_err());
+    }
+
+    // --- link-assets positional vector, matching main.js -----------------
 
     #[test]
     fn link_positional_matches_main_js_shapes() {
@@ -839,21 +899,23 @@ mod tests {
 
     #[test]
     fn public_url_brackets_ipv6_but_targets_do_not() {
-        assert_eq!(public_url("192.168.1.5"), "http://192.168.1.5:3338");
-        assert_eq!(public_url("::1"), "http://[::1]:3338");
-        assert_eq!(ws_allowed_targets("::1", true), "127.0.0.1:6900,::1:5121,::1:6121");
+        assert_eq!(public_url("192.168.1.5", 3338), "http://192.168.1.5:3338");
+        assert_eq!(public_url("::1", 3338), "http://[::1]:3338");
+        assert_eq!(ws_allowed_targets("::1", true, &Ports::DEFAULT), "127.0.0.1:6900,::1:5121,::1:6121");
     }
 
     #[test]
     fn targets_stay_loopback_without_lan_and_follow_advertise_with_it() {
-        // Sorted lexicographically, matching Array.prototype.sort() in main.js.
-        let mut expected = vec!["127.0.0.1:6900".to_string(), "127.0.0.1:6121".to_string(), "127.0.0.1:5121".to_string()];
-        expected.sort();
-        assert_eq!(ws_allowed_targets("192.168.1.5", false), expected.join(","));
+        let p = Ports::DEFAULT;
+        assert_eq!(ws_allowed_targets("192.168.1.5", false, &p), "127.0.0.1:5121,127.0.0.1:6121,127.0.0.1:6900");
+        assert_eq!(ws_allowed_targets("192.168.1.5", true, &p), "127.0.0.1:6900,192.168.1.5:5121,192.168.1.5:6121");
+    }
 
-        let mut expected = vec!["127.0.0.1:6900".to_string(), "192.168.1.5:6121".to_string(), "192.168.1.5:5121".to_string()];
-        expected.sort();
-        assert_eq!(ws_allowed_targets("192.168.1.5", true), expected.join(","));
+    #[test]
+    fn moved_ports_move_the_targets() {
+        let p = Ports { asset: 13338, login: 16900, char: 16121, map: 15121, agent: 17490 };
+        assert_eq!(ws_allowed_targets("10.0.0.2", true, &p), "10.0.0.2:15121,10.0.0.2:16121,127.0.0.1:16900");
+        assert_eq!(public_url("10.0.0.2", p.asset), "http://10.0.0.2:13338");
     }
 
     // --- passthrough env precedence ---------------------------------------
@@ -953,7 +1015,7 @@ mod tests {
             image: String::new(),
             db_image: String::new(),
             app_version: None,
-            ports: crate::ports::Ports::DEFAULT,
+            ports: Ports::DEFAULT,
         };
         unpack_translation_tar(&cfg, "Renewal").unwrap();
         fs::remove_dir_all(&root).unwrap();
