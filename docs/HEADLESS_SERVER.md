@@ -1,11 +1,48 @@
 # Running a dedicated server, headless
 
-`ragnarok-stack serve` is the whole app minus the window. It reads the same
-settings the app's Settings window writes, links your client's GRFs, brings the
-microVM and rAthena containers up, runs the asset server in the foreground, and
-tears both down on Ctrl-C or `systemctl stop`. There is no Electron here and
-nothing to click. It is the same supervisor binary the desktop app already
-ships, run from a terminal on a Linux box that is never going to open a window.
+`ragnarok-stack serve` is the whole app minus the window. It reads the settings
+the app's Settings window wrote, links your client's GRFs, brings the microVM
+and rAthena containers up, runs the asset server in the foreground, and tears
+both down on Ctrl-C or `systemctl stop`. There is no Electron and nothing to
+click.
+
+## Set it up in the app, serve it from a checkout
+
+On the machine the desktop app is installed on:
+
+1. **Configure everything in the app**: pick your client in the setup window,
+   then rates, era, client version, mods and Multiplayer → LAN in Settings, and
+   press Apply. Quit the app and let it finish quitting.
+2. **Serve the latest commit of this repository with those settings:**
+
+   ```sh
+   git clone https://github.com/<you>/ragnarokoffline.app.git   # once
+   cd ragnarokoffline.app
+   git pull && scripts/serve.sh
+   ```
+
+That is the whole workflow. `scripts/serve.sh` builds the checkout into
+`payload/` the way a release is built, then runs `payload/bin/ragnarok-stack
+serve`. That reads `settings.json` and `client.json` from the app's own data
+folder, so there is nothing to copy, export or pass. The first build takes a
+while: it builds the web client and two pinned Rust helpers, and downloads the
+engine kit and the server images. After a `git pull` it rebuilds only what the
+pull changed. `scripts/serve.sh --build-only` builds without starting.
+
+To change a setting, open the app, change it, press Apply, and quit. Then
+restart `serve.sh` (Ctrl-C, then run it again). The app and `serve` cannot run
+at the same time: they share ports and the database disk, and `serve` refuses
+to start while the app's asset server holds its port.
+
+What it needs: git, curl, Node.js 22 and Rust (see CONTRIBUTING.md "What you
+need"); an Apple silicon Mac, or x64 Linux with `/dev/kvm` (below). The server
+images come from the project's `images` release, which is built from `main`.
+If your checkout changes the server itself (`containers/`, `third-party/`, the
+rAthena pin), build the images locally (CONTRIBUTING.md "Building the server
+images"), or set `RAGNAROK_IMAGES_REPO=owner/repo` to a fork that publishes
+its own.
+
+Any flags after `serve.sh` go to `ragnarok-stack serve`:
 
 ```
 ragnarok-stack serve [--config <client.json>] [--grf <data.grf>] [--rdata <rdata.grf>]
@@ -13,8 +50,8 @@ ragnarok-stack serve [--config <client.json>] [--grf <data.grf>] [--rdata <rdata
                       [--era renewal|prerenewal] [--lan|--no-lan] [--ram MiB]
 ```
 
-Every flag is remembered, so after the first run a bare `ragnarok-stack serve`
-starts the same server again. A systemd unit's `ExecStart` can be just that.
+None of them is needed on the app's machine. Each one changes the same saved
+setting the app changes, so the app shows it next time it opens.
 
 ## One configuration, shared with the app
 
@@ -40,11 +77,8 @@ The data root is:
 Both programs read these files every time they start a server, and both turn
 `settings.json` into the same server config. So:
 
-- **On one machine,** the app and `serve` are already sharing. Change a rate in
-  the app's Settings, stop the app, run `serve`, and the server has the new
-  rate. Run only one of them at a time: they use the same ports and the same
-  database disk.
-- **On a headless box,** there is no Settings window, so use the
+- **On one machine,** the app and `serve` are already sharing, as above.
+- **On a box with no app,** there is no Settings window, so use the
   `settings` command instead (below), or edit `settings.json` in any text
   editor. To start from the settings you already have on your desktop, copy
   your `settings.json` across. `client.json` describes a single machine (its
@@ -130,7 +164,12 @@ The ports can be moved, as for any copy of the app, with
 [AGENT_TESTING.md](AGENT_TESTING.md#running-beside-the-app)). `serve` follows
 them, including the address it prints.
 
-## Linux host setup
+## Linux without a checkout: the AppImage
+
+For a Linux box where you would rather not build anything, the release
+AppImage carries a ready-built supervisor. Settings then come from
+`ragnarok-stack settings set` or a copied `settings.json` (above), since there
+is no app on the box.
 
 1. **`/dev/kvm` and the `kvm` group.** The microVM needs KVM. Confirm it
    exists and check who can open it:
@@ -221,6 +260,18 @@ Restart=on-failure
 [Install]
 WantedBy=multi-user.target
 ```
+
+With the checkout workflow, point `ExecStart` at the script instead, and run
+the unit as **your own desktop account** (`User=` and `HOME=`), because the
+data folder, and so the settings the app wrote, belongs to that account:
+
+```ini
+ExecStart=/home/you/ragnarokoffline.app/scripts/serve.sh
+```
+
+The script rebuilds before it serves when the checkout changed, so a restart
+after a `git pull` can take minutes. Run `scripts/serve.sh --build-only` after
+pulling, then restart the unit, to keep that out of the restart.
 
 Notes on that file:
 

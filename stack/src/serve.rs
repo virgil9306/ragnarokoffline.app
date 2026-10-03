@@ -410,6 +410,19 @@ fn build_env(cfg: &Config, lan: bool, advertise: &str) -> Vec<(String, String)> 
     env
 }
 
+fn port_is_free(port: u16) -> Result<(), String> {
+    match std::net::TcpListener::bind(("127.0.0.1", port)) {
+        Ok(listener) => {
+            drop(listener);
+            Ok(())
+        }
+        Err(e) => Err(format!(
+            "port {port} is already in use ({e}). Quit the desktop app, and let it finish \
+             quitting, or stop the other `serve`: both use the same ports and database."
+        )),
+    }
+}
+
 fn remoteclient_binary(cfg: &Config) -> Result<PathBuf, String> {
     let name = format!("robrowser-remoteclient{}", config::EXE);
     let bundled = cfg.root.join("bin").join(&name);
@@ -573,6 +586,12 @@ pub fn run(cfg: &Config, dk: &Docker, args: &[String]) -> Result<(), String> {
     // default action kills `serve` mid-boot and leaves a half-started VM with
     // nobody left to take it down.
     signals::install();
+
+    // Before anything is written or started. On the machine the desktop app
+    // runs on, a running app holds this port and the containers `up` is about
+    // to replace: carrying on would take the app's server over and then fail
+    // to listen, tearing both down.
+    port_is_free(cfg.ports.asset)?;
 
     let client_json_path = config::data_root().join("client.json");
     let existing = load_client_json(&client_json_path)?;
@@ -909,6 +928,16 @@ mod tests {
         let p = Ports::DEFAULT;
         assert_eq!(ws_allowed_targets("192.168.1.5", false, &p), "127.0.0.1:5121,127.0.0.1:6121,127.0.0.1:6900");
         assert_eq!(ws_allowed_targets("192.168.1.5", true, &p), "127.0.0.1:6900,192.168.1.5:5121,192.168.1.5:6121");
+    }
+
+    #[test]
+    fn a_port_in_use_is_refused_by_name() {
+        let held = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = held.local_addr().unwrap().port();
+        let e = port_is_free(port).unwrap_err();
+        assert!(e.contains(&port.to_string()) && e.contains("desktop app"), "{e}");
+        drop(held);
+        assert!(port_is_free(port).is_ok());
     }
 
     #[test]

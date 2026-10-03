@@ -434,9 +434,9 @@ you already have: **[docs/DATABASE.md](docs/DATABASE.md)**.
 
 Everything above assumes the app's own window. The same supervisor also runs a
 dedicated server on a Linux box with nobody sitting at it — no Electron, no
-GPU, just `ragnarok-stack serve` and a systemd unit. It reads the same
-`settings.json` as the Settings window, and `ragnarok-stack settings set` edits
-it from a terminal: **[docs/HEADLESS_SERVER.md](docs/HEADLESS_SERVER.md)**.
+GPU, just `ragnarok-stack serve` and a systemd unit. Set it up in the app,
+quit, and `git pull && scripts/serve.sh` serves the latest commit with the
+app's own settings: **[docs/HEADLESS_SERVER.md](docs/HEADLESS_SERVER.md)**.
 
 ---
 
