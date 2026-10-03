@@ -137,8 +137,8 @@ if ! fresh images "$IMAGES_KEY" || [ ! -f dist/images.tar.gz ] || ! ls .ragnarok
 fi
 
 # --- payload/ ----------------------------------------------------------------
-# The whole checkout, plus whatever was rebuilt above.
-PAYLOAD_KEY=$(printf '%s %s %s %s\n' "$(key_of .)" "$CLIENT_KEY" "$IMAGES_KEY" "${NEBULA_EMBED_KIT}" | sha256)
+# The whole checkout but its documentation, plus whatever was rebuilt above.
+PAYLOAD_KEY=$(printf '%s %s %s %s\n' "$(key_of . ':!docs' ':!docs-site' ':!*.md')" "$CLIENT_KEY" "$IMAGES_KEY" "${NEBULA_EMBED_KIT}" | sha256)
 if [ -n "$REBUILT" ] || ! fresh payload "$PAYLOAD_KEY" || [ ! -x payload/bin/ragnarok-stack ]; then
     say "assembling payload/ (tests and builds the supervisor)"
     scripts/package.sh
