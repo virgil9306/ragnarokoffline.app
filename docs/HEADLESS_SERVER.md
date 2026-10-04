@@ -85,10 +85,21 @@ Both programs read these files every time they start a server, and both turn
   GRF paths), so let `serve --grf …` write that one rather than copying it.
 
 The app turns `settings.json` into server config in JavaScript
-(`electron/server-settings.js`). `serve` does it in Rust
-(`stack/src/settings.rs`), and CI checks that the two produce byte-for-byte
-the same config (`tests/server-settings-parity.test.cjs`). A server set up in
-either place therefore runs the same.
+(`toBattleConf` in `electron/main.js`). `serve` does it in Rust
+(`stack/src/settings.rs`), and a test checks that the two produce
+byte-for-byte the same config (`tests/server-settings-parity.test.cjs`). A
+server set up in either place therefore runs the same.
+
+### Pulling upstream
+
+None of this changes what upstream builds. `serve` touches no file the
+server images are built from, so the images the project publishes stay the
+right ones, and `electron/` is left exactly as upstream has it, so a pull
+merges there without conflicts. The one thing to watch: when upstream adds a
+setting or changes how one is written into the server config, the parity test
+fails and names the line that differs. Port that change to
+`stack/src/settings.rs`. Until then, a server started with `serve` writes
+the old config for that setting, while the app writes the new one.
 
 ### Changing settings from a terminal
 

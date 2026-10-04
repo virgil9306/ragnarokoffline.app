@@ -1,20 +1,45 @@
 'use strict';
 // The app and a headless server must turn one settings.json into one server.
 //
-// The desktop app generates conf/battle_conf.txt in JavaScript
-// (electron/server-settings.js). `ragnarok-stack serve` runs where there is no
-// JavaScript, so the supervisor carries a port of it (stack/src/settings.rs).
-// Two copies of a generator are two things that will drift, so this runs both
-// on the same settings and fails on any difference -- in the defaults, in the
-// output for settings the app writes, and in the output for the hand-edited
-// files the port's JavaScript coercions exist for.
+// The desktop app generates conf/battle_conf.txt in JavaScript (toBattleConf in
+// electron/main.js). `ragnarok-stack serve` runs where there is no JavaScript,
+// so the supervisor carries a port of it (stack/src/settings.rs). Two copies of
+// a generator are two things that will drift, so this runs both on the same
+// settings and fails on any difference -- in the defaults, in the output for
+// settings the app writes, and in the output for the hand-edited files the
+// port's JavaScript coercions exist for.
+//
+// main.js is read as it is, not refactored for this test, so pulling upstream
+// never conflicts here. When upstream changes the generator, this fails and
+// names the line: port the change to settings.rs.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const vm = require('node:vm');
 const { spawnSync } = require('node:child_process');
-const { SETTINGS_DEFAULTS, toBattleConf } = require('../electron/server-settings');
+
+// The top-level declarations toBattleConf needs, cut out of main.js by name
+// and run on their own. Each runs from its first line to the first line that
+// closes it at column 0; a one-line `const` is complete as it stands.
+function fromMain(names) {
+	const lines = fs.readFileSync(path.join(__dirname, '../electron/main.js'), 'utf8').split(/\r?\n/);
+	const parts = names.map(name => {
+		const start = lines.findIndex(l => new RegExp(`^(const|function) ${name}\\b`).test(l));
+		assert.ok(start >= 0, `electron/main.js no longer declares ${name} at the top level; update this test and stack/src/settings.rs`);
+		if (/;\s*$/.test(lines[start])) return lines[start];
+		const end = lines.findIndex((l, i) => i > start && /^\};?\s*$/.test(l));
+		return lines.slice(start, end + 1).join('\n');
+	});
+	const electronRequire = id => require(id.startsWith('./') ? path.join(__dirname, '../electron', id) : id);
+	const sandbox = { require: electronRequire, Object, Number, Math, String };
+	vm.runInNewContext(`${parts.join('\n')}\nthis.out = { ${names.join(', ')} };`, sandbox);
+	return sandbox.out;
+}
+const { SETTINGS_DEFAULTS, toBattleConf } = fromMain([
+	'SETTINGS_DEFAULTS', 'ASPD_STOCK', 'PARAM_STOCK', 'aspdConf', 'parameterConf', 'expRatesRaised', 'toBattleConf',
+]);
 
 const skip = process.env.STACK_BIN ? false : 'needs STACK_BIN';
 
@@ -44,7 +69,8 @@ const jsBattleConf = settings => toBattleConf({ ...SETTINGS_DEFAULTS, ...setting
 test('the defaults agree, key for key', { skip }, () => {
 	const state = fs.mkdtempSync(path.join(os.tmpdir(), 'ro-parity-'));
 	try {
-		assert.deepEqual(JSON.parse(stack(state, ['settings', 'defaults'])), SETTINGS_DEFAULTS);
+		// Through JSON: the sandbox's objects have its own Object prototype.
+		assert.deepEqual(JSON.parse(stack(state, ['settings', 'defaults'])), JSON.parse(JSON.stringify(SETTINGS_DEFAULTS)));
 	} finally {
 		fs.rmSync(state, { recursive: true, force: true });
 	}

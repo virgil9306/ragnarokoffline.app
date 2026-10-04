@@ -15,7 +15,8 @@
 //! view distance, the population engine) and the `prerenewal` and
 //! `free_kafra_warp` markers. In the desktop app that is `toBattleConf` and
 //! `saveSettings`, in JavaScript, and a Linux box running `serve` has no
-//! JavaScript. So this is a port of `electron/server-settings.js`, and
+//! JavaScript. So this is a port of `toBattleConf` and its helpers in
+//! electron/main.js, and
 //! `tests/server-settings-parity.test.cjs` runs both on the same settings and
 //! fails on any difference -- including in the defaults. Change one, change
 //! the other.
@@ -30,7 +31,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-/// `SETTINGS_DEFAULTS` in electron/server-settings.js, key for key. Some are
+/// `SETTINGS_DEFAULTS` in electron/main.js, key for key. Some are
 /// the app's own (which window opens, the AI agent, the invite lifetime);
 /// they are here so that `settings set` knows every key and writes a complete
 /// file, exactly as the app's Apply does.
