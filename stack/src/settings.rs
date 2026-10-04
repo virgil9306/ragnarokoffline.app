@@ -68,6 +68,7 @@ pub fn defaults() -> BTreeMap<String, Value> {
         ("population_companion_fee_item", n(0.0)),
         ("population_companion_fee_item_amount", n(0.0)),
         ("population_companion_limit", n(4.0)),
+        ("population_skill_weapon_check", Value::Bool(false)),
         ("instant_character_deletion", Value::Bool(false)),
         ("open_settings_first", Value::Bool(false)),
         ("prerenewal", Value::Bool(false)),
@@ -343,6 +344,9 @@ pub fn battle_conf(s: &BTreeMap<String, Value>) -> String {
     for (key, value) in fee {
         out.push_str(&format!("population_engine_companion_hire_{key}: {}\n", js_number_string(value)));
     }
+    // skillWeaponCheck: strictly `true`, not merely truthy.
+    let weapon_check = if matches!(get("population_skill_weapon_check"), Some(Value::Bool(true))) { 1 } else { 0 };
+    out.push_str(&format!("population_engine_skill_weapon_check: {weapon_check}\n"));
     out.push_str(&format!("population_engine_vending_enable: {on}\n"));
     out
 }
