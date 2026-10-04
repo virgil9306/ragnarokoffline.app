@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000025
+Subject: [PATCH] Companion trades: snapshot the companion's inventory before items move
+
+population_engine_companion_equip_traded runs after the trade and equipped
+every unworn item in the companion's bag, its own spare arrows and pushed-off
+gear included, then handed them to the owner as player gear. It now compares
+against this snapshot and acts only on what the trade brought in.
+
+--- a/src/map/trade.cpp
++++ b/src/map/trade.cpp
+@@ -665,6 +665,13 @@
+ 		return;
+ 	}
+ 
++	// RAGNAROKMAC (Goal 2): note a companion's inventory before the items move, so the equip
++	// pass below acts only on what this trade brought in, not on the companion's own things.
++	if (population_engine_is_population_pc(sd->id))
++		population_engine_companion_trade_snapshot(sd);
++	if (population_engine_is_population_pc(tsd->id))
++		population_engine_companion_trade_snapshot(tsd);
++
+ 	// trade is accepted and correct.
+ 	for( trade_i = 0; trade_i < 10; trade_i++ ) {
+ 		int32 n;

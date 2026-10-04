@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS `cp_companion_persistence` (
   `shell_index`      INT UNSIGNED  NOT NULL,          -- spawn index_ (char/account id - BASE) -> identity survives restart
   `name`             VARCHAR(24)   NOT NULL DEFAULT '',-- persistent display name (v2)
   `job_id`           SMALLINT      NOT NULL DEFAULT 0,
-  `sex`              TINYINT       NOT NULL DEFAULT 0, -- SEX_MALE/SEX_FEMALE
+  `sex`              TINYINT       NOT NULL DEFAULT 0, -- rAthena e_sex: 0 SEX_FEMALE, 1 SEX_MALE
   `hair_style`       TINYINT       NOT NULL DEFAULT 1,
   `hair_color`       SMALLINT      NOT NULL DEFAULT 0,
   `cloth_color`      SMALLINT      NOT NULL DEFAULT 0,
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS `cp_companion_persistence` (
   `con_`             SMALLINT      NOT NULL DEFAULT 0,
   `crt_`             SMALLINT      NOT NULL DEFAULT 0,
   `mode`             TINYINT       NOT NULL DEFAULT 1, -- companion stance: 0 passive, 1 defensive, 2 attack (v6)
-  `duty`             TINYINT       NOT NULL DEFAULT 0, -- role: 0 attacker, 1 tank, 2 support (v6)
+  `duty`             TINYINT       NOT NULL DEFAULT 0, -- role (PopulationRoleType): 0 none, 1 tank, 2 support, 3 attacker (v6)
   `heal_at`          TINYINT       NOT NULL DEFAULT 75, -- support heal threshold HP% (v6)
   `emergency_at`     TINYINT       NOT NULL DEFAULT 35, -- support emergency heal HP% (v6)
   `skill_preset`     TEXT          NULL DEFAULT NULL,   -- chosen skill ids, comma separated (v7); NULL = the class preset list, '' = none chosen
@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS `cp_companion_persistence` (
   `hom_level`        SMALLINT      NOT NULL DEFAULT 0,  -- the pet's level (v8)
   `hom_exp`          BIGINT        NOT NULL DEFAULT 0,  -- the pet's exp toward the next level (v8)
   `given_mask`       INT UNSIGNED  NOT NULL DEFAULT 0,  -- EQP_* positions worn by gear the OWNER gave (v9); only these come back
+  `gear_detail`      TEXT          NULL DEFAULT NULL,   -- every worn piece in full: refine, cards, options (v11); NULL = saved before v11, recalled from the *_nameid columns alone
   `map_id`           SMALLINT      NOT NULL DEFAULT 0, -- mapindex id of owner at recruit (recall target)
   `active`           TINYINT       NOT NULL DEFAULT 1, -- 1 = recalled on login; 0 = released (Goal 3 sets this)
   `favorite`         TINYINT       NOT NULL DEFAULT 0, -- 1 = owner favorited (friend list sort)

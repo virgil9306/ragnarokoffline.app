@@ -37,6 +37,11 @@ Header:
   Type: POPULATION_ENGINE_DB
   Version: 2
 
+# PreRenewal (optional): slot pools, keyed like the set's own, that a pre-renewal server uses
+# in place of the set's for each slot listed. Most sets are built from renewal-only items (the
+# Paradise/Eden gear), which the pre-renewal item db lacks; without it those slots spawn empty
+# there. Renewal ignores the block.
+
 Body:
 
   - GearSetName: novice_set
@@ -64,6 +69,10 @@ Body:
       - Novice_Figure
     AccR:
       - Novice_Figure
+    PreRenewal:
+      HeadBottom:
+        - Centimental_Flower
+        - Centimental_Leaf
 
   - GearSetName: para_swordsman
     HeadTop:
@@ -93,6 +102,19 @@ Body:
       - Swordman_Figure
     AccR:
       - Swordman_Figure
+    PreRenewal:
+      Weapon:
+        - Bastard_Sword
+        - Zweihander
+      Armor:
+        - Chain_Mail
+        - Plate_Armor
+      Garment:
+        - Manteau
+        - Muffler
+      Shoes:
+        - Boots
+        - Shoes
 
   - GearSetName: para_knight_base
     HeadTop:
@@ -128,6 +150,19 @@ Body:
       - Ring_
     AccR:
       - Ring_
+    PreRenewal:
+      Weapon:
+        - Claymore
+        - Zweihander
+      Armor:
+        - Chain_Mail
+        - Plate_Armor
+      Garment:
+        - Manteau
+        - Muffler
+      Shoes:
+        - Boots
+        - Shoes
 
   - GearSetName: para_crusader
     HeadTop:
@@ -173,6 +208,20 @@ Body:
       - Necklace_
     AccR:
       - Necklace_
+    PreRenewal:
+      Weapon:
+        - Saber
+        - Tsurugi
+        - Haedonggum
+      Armor:
+        - Chain_Mail
+        - Plate_Armor
+      Garment:
+        - Manteau
+        - Muffler
+      Shoes:
+        - Boots
+        - Shoes
 
   - GearSetName: para_mage
     HeadTop:
@@ -208,6 +257,19 @@ Body:
       - Necklace
     AccR:
       - Necklace
+    PreRenewal:
+      Weapon:
+        - Arc_Wand
+        - Mighty_Staff
+      Armor:
+        - Silk_Robe
+        - Saint_Robe
+      Garment:
+        - Muffler
+        - Hood
+      Shoes:
+        - Shoes
+        - Sandals
 
   - GearSetName: para_bow
     HeadTop:
@@ -242,6 +304,19 @@ Body:
       - Glove
     AccR:
       - Glove
+    PreRenewal:
+      Weapon:
+        - Composite_Bow
+        - Arbalest
+      Armor:
+        - Tights
+        - Mantle
+      Garment:
+        - Muffler
+        - Hood
+      Shoes:
+        - Boots
+        - Shoes
 
   - GearSetName: bare_dagger
     HeadTop: 0
@@ -314,6 +389,19 @@ Body:
       - Rosary
     AccR:
       - Rosary
+    PreRenewal:
+      Weapon:
+        - Morning_Star
+        - Stunner
+      Armor:
+        - Saint_Robe
+        - Mantle
+      Garment:
+        - Muffler
+        - Hood
+      Shoes:
+        - Sandals
+        - Shoes
 
   - GearSetName: para_thief
     HeadTop:
@@ -341,6 +429,20 @@ Body:
       - Ring
     AccR:
       - Ring
+    PreRenewal:
+      Weapon:
+        - Gladius
+        - Damascus
+        - Stiletto
+      Armor:
+        - Thief_Clothes
+        - Mantle
+      Garment:
+        - Muffler
+        - Manteau
+      Shoes:
+        - Boots
+        - Shoes
 
   - GearSetName: para_merchant
     HeadTop:
@@ -369,6 +471,19 @@ Body:
       - Ring
     AccR:
       - Ring
+    PreRenewal:
+      Weapon:
+        - Morning_Star
+        - Sword_Mace
+      Armor:
+        - Chain_Mail
+        - Wooden_Mail
+      Garment:
+        - Manteau
+        - Muffler
+      Shoes:
+        - Boots
+        - Shoes
 
   - GearSetName: para_taekwon
     HeadTop:
@@ -389,6 +504,16 @@ Body:
       - Para_Team_Boots3
     AccL: 0
     AccR: 0
+    PreRenewal:
+      Armor:
+        - Mantle
+        - Coat
+      Garment:
+        - Muffler
+        - Hood
+      Shoes:
+        - Sandals
+        - Shoes
 
   - GearSetName: para_gun
     HeadTop:
@@ -416,6 +541,16 @@ Body:
       - Ring
     AccR:
       - Ring
+    PreRenewal:
+      Armor:
+        - Mantle
+        - Coat
+      Garment:
+        - Muffler
+        - Hood
+      Shoes:
+        - Boots
+        - Shoes
 
   - GearSetName: para_ninja
     HeadTop:
@@ -440,6 +575,19 @@ Body:
       - Ring
     AccR:
       - Ring
+    PreRenewal:
+      Weapon:
+        - Gladius
+        - Damascus
+      Armor:
+        - Thief_Clothes
+        - Mantle
+      Garment:
+        - Muffler
+        - Hood
+      Shoes:
+        - Boots
+        - Shoes
 
   - GearSetName: para_assassin_katar   # Assassin / Assassin Cross — katar build
     HeadTop:
@@ -480,6 +628,16 @@ Body:
 # plain level 1-4 equipment so a newbie-band shell is actually dressed and
 # actually fights.
 ###########################################################################
+    PreRenewal:
+      Armor:
+        - Thief_Clothes
+        - Mantle
+      Garment:
+        - Muffler
+        - Manteau
+      Shoes:
+        - Boots
+        - Shoes
   - GearSetName: low_melee
     HeadTop: 0
     HeadMid: 0

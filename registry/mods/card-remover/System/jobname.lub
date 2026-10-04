@@ -1,0 +1,10 @@
+-- Which sprite the Card Remover (NPC 19510) uses: data/sprite/npc/vadon.spr
+-- and .act, which the client already has in data.grf. The client lower-cases
+-- the name and looks under data/sprite/npc/ because 19510 is in its NPC range
+-- (10001-19998).
+--
+-- Only this one row. The app loads it after the client's own table and merges
+-- it by id, so every other NPC and monster keeps its sprite.
+JobNameTable = {
+	[19510] = "VADON",
+}

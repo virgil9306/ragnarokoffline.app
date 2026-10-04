@@ -120,7 +120,7 @@ test('the recurring snapshot writes the pet state only when a pet exists', () =>
 		'the fragment must carry the pet\'s live state');
 	assert.match(body, /\(int\)sd->hd->homunculus\.level/,
 		'the level written must come from the live pet');
-	assert.match(body, /" mode=%d, duty=%d, heal_at=%d, emergency_at=%d(, given_mask=%u)?%s"/,
+	assert.match(body, /" mode=%d, duty=%d, heal_at=%d, emergency_at=%d(, given_mask=%u)?(, gear_detail='%s')?%s"/,
 		'the fragment must actually be interpolated into the statement');
 	assert.match(body, /hom_frag,\s*\n\s*owner, sd->pop\.companion_owner_char, index_\);/,
 		'and bound to the right placeholder');

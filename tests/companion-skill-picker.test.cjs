@@ -61,19 +61,19 @@ test('the picker overlay is MOUNTED, not just constructed', () => {
 	// outside the `#CompanionPanel` wrapper that every rule in the stylesheet is scoped to,
 	// and the window rendered with no background at all.
 	const mount = js.slice(js.indexOf('function _mountSkillPicker('));
-	const mountBody = mount.slice(0, 600);
+	const mountBody = mount.slice(0, mount.indexOf('\n}\n'));
 	assert.match(mountBody, /const wrap = _panelMount\(\);/,
 		'_mountSkillPicker must mount via _panelMount (the #CompanionPanel wrapper)');
-	assert.match(mountBody, /wrap\.append\(_skillPickerOverlay\(\)\)/,
+	assert.match(mountBody, /const overlay = _skillPickerOverlay\(\);\s*wrap\.append\(overlay\);/,
 		'the overlay must be appended to the WRAPPER, not the shadow root');
-	assert.ok(!/root\.append\(_skillPickerOverlay\(\)\)/.test(mountBody),
+	assert.ok(!/root\.append\((?:_skillPickerOverlay\(\)|overlay)\)/.test(mountBody),
 		'the overlay must NOT be appended to getRoot() directly - that is the no-background bug');
 	// _render is the single funnel every redraw goes through, so the call belongs there.
 	const render = js.slice(js.indexOf('function _render()'), js.indexOf('function _page('));
 	assert.match(render, /_mountSkillPicker\(\)/,
 		'_render must mount the picker, or the overlay never appears');
 	// A second overlay would swallow clicks meant for the first.
-	assert.match(mount.slice(0, 600), /querySelectorAll\('\.skill-overlay'\)[\s\S]{0,40}remove\(\)/,
+	assert.match(mountBody, /querySelectorAll\('\.skill-overlay'\)[\s\S]{0,40}remove\(\)/,
 		'a previous overlay must be removed before mounting another');
 });
 
@@ -97,7 +97,7 @@ test('a tick mirrors the server instead of being set optimistically', () => {
 	// The server is authoritative about the selection, so the client re-asks after a
 	// change rather than leaving its own checkbox state as the truth.
 	const cb = js.slice(js.indexOf("cb.addEventListener('change'"));
-	assert.match(cb.slice(0, 900), /askSkills\(_skillTarget\)/,
+	assert.match(cb.slice(0, 900), /askSkills\(_skillTarget, true\)/,
 		'a tick must re-ask the server after the change');
 	assert.match(cb.slice(0, 900), /cb\.disabled = true/,
 		'the box must be disabled while the round-trip is in flight');
@@ -210,4 +210,54 @@ test('the picker CSS is scoped, dense and backed by the real bitmaps', () => {
 	assert.ok(!/border-radius:\s*(?!0)[1-9]/.test(block), 'no rounded corners (not RO)');
 	assert.ok(!/font-size:\s*1[4-9]px|font-size:\s*2\dpx/.test(block), 'keep RO type metrics');
 	assert.ok(!/box-shadow:\s*0\s+\d+px\s+\d+px\s+rgba/.test(block), 'no soft web shadows');
+});
+
+// #290 item 10: the picker listed bare Aegis names (AL_HEAL) with no way to read what a skill
+// does. It now shows the in-game name and opens the client's own description window on a
+// right-click, as the skill window does.
+test('skills show their in-game name and a description on right-click', () => {
+	assert.match(js, /import DB from 'DB\/DBManager\.js';/);
+	assert.match(js, /import SkillDescription from 'UI\/Components\/SkillDescription\/SkillDescription\.js';/);
+	const overlay = js.slice(js.indexOf('function _skillPickerOverlay('));
+	const body = overlay.slice(0, overlay.indexOf('\n}\n'));
+	assert.match(body, /nm\.textContent = DB\.getSkillName\(s\.id\) \|\| s\.name;/,
+		'the in-game name, with the Aegis name as the fallback');
+	assert.match(body, /nm\.title = s\.name;/, 'the Aegis name stays as the hover title');
+	assert.match(body, /row\.addEventListener\('contextmenu', e => \{\s*e\.preventDefault\(\);[\s\S]{0,80}_toggleSkillDescription\(s\.id\)/);
+
+	const toggle = js.slice(js.indexOf('function _toggleSkillDescription('));
+	const tbody = toggle.slice(0, toggle.indexOf('\n}\n'));
+	assert.match(tbody, /if \(SkillDescription\.uid === id\) \{\s*SkillDescription\.remove\(\);/,
+		'the same skill again closes it, as in the skill window');
+	assert.match(tbody, /SkillDescription\.append\(\);\s*SkillDescription\.setSkill\(id\);/);
+
+	const close = js.slice(js.indexOf('function closeSkillPicker('));
+	assert.match(close.slice(0, close.indexOf('\n}\n')), /_skills\.some\(s => s\.id === SkillDescription\.uid\)/,
+		'closing the picker closes a description it opened, and only that');
+});
+
+// #290 item 9: every tick scrolled the list back to the top. The re-ask after a change
+// emptied the list (the picker redrew as "asking the server…"), and every redraw builds a
+// fresh overlay whose list starts at scrollTop 0. A refresh now keeps the list on screen
+// until the answer replaces it, and the mount carries the scroll position across.
+test('a tick keeps the skill list where it was scrolled', () => {
+	const ask = js.slice(js.indexOf('function askSkills('));
+	const askBody = ask.slice(0, ask.indexOf('\n}\n'));
+	assert.match(askBody, /function askSkills\(name, refresh\)/);
+	assert.match(askBody, /if \(!refresh\) \{\s*_skills = \[\];/,
+		'only a fresh open may empty the list');
+	for (const m of js.matchAll(/setTimeout\(\(\) => askSkills\(([^)]*)\)/g))
+		assert.equal(m[1], '_skillTarget, true', 'every re-ask after a change is a refresh');
+	assert.match(js, /function openSkillPicker\(name\) \{\s*_skillTarget = name;\s*askSkills\(name\);/,
+		'opening the picker still starts from an empty list');
+
+	const mount = js.slice(js.indexOf('function _mountSkillPicker('));
+	const body = mount.slice(0, mount.indexOf('\n}\n'));
+	const read = body.indexOf('.scrollTop : 0');
+	const remove = body.indexOf(".skill-overlay').forEach(el => el.remove())");
+	const restore = body.indexOf('list.scrollTop = scroll');
+	assert.ok(read >= 0 && remove > read, 'the scroll position is read before the old overlay goes');
+	assert.ok(restore > remove, 'and restored on the new list');
+	assert.match(css, /#CompanionPanel \.skill-list \{[^}]*overflow-y: auto/,
+		'.skill-list is the element that scrolls');
 });

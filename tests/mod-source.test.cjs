@@ -478,3 +478,28 @@ test('the install confirmation sees code kept in an era folder and in lua/', () 
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test('a mod installed from the mod list hears of a newer version there', () => {
+  const listing = [
+    { name: 'prontera-vendors', version: '1.2.0', source: null, requires: { app: '>=1.4.6' } },
+    { name: 'autoloot', version: '1.0.0', source: null, requires: {} },
+    { name: 'future-mod', version: '2.0.0', source: null, requires: { app: '>=9.0.0' } },
+    { name: 'standart-npc', version: '', source: { github: 'MondoTruth/standart-npc' }, requires: {} },
+  ];
+  const installed = [
+    { name: 'prontera-vendors', version: '1.1.0' },
+    { name: 'autoloot', version: '1.0.0' },
+    { name: 'future-mod', version: '1.0.0' },
+    { name: 'standart-npc', version: '4.9.0' },   // a source entry now: its releases answer, not this
+    { name: 'my-own-mod', version: '0.1' },       // not in the list at all
+  ];
+  const out = source.registryUpdates(installed, listing, { appVersion: '1.4.9' });
+  assert.deepStrictEqual(out, [
+    { name: 'prontera-vendors', listed: true, registry: true, installed: '1.1.0', latest: '1.2.0', update: true },
+    { name: 'autoloot', listed: true, registry: true, installed: '1.0.0', latest: '1.0.0', update: false },
+    { name: 'future-mod', listed: true, registry: true, installed: '1.0.0', latest: '2.0.0', update: false,
+      needsApp: 'needs app >=9.0.0, and this is 1.4.9' },
+  ]);
+  // A version the installed mod.json does not say counts as older.
+  assert.strictEqual(source.registryUpdates([{ name: 'autoloot', version: '' }], listing, { appVersion: '1.4.9' })[0].update, true);
+});

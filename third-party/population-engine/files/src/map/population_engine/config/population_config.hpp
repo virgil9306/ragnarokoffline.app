@@ -154,6 +154,17 @@ public:
 	size_t job_count() const;
 };
 
+/// RAGNAROKMAC: one row of a mod price table, kept for the customers who
+/// visit players' stalls (population_customers.cpp): the item's price range
+/// and how many sales a day it sees at a fair price, to buyers and from
+/// sellers (BuyersPerDay, SellersPerDay; -1 when the table has no such column).
+struct PopMarketRow {
+	uint32_t lo = 0, hi = 0;
+	int32_t buyers_day = -1, sellers_day = -1;
+};
+/// Price table prefix ("prontera-vendors/") -> item -> row.
+extern std::unordered_map<std::string, std::unordered_map<t_itemid, PopMarketRow>> g_pop_market_tables;
+
 class PopulationVendorDatabase : public YamlDatabase {
 	std::unordered_map<std::string, PopulationVendorEntry> entries_;
 	/// Derived index: Map name -> placement constraint, populated from per-vendor

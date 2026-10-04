@@ -47,9 +47,11 @@
    *
    * `checked` is the checkboxes as they stand; `present` every mod name in
    * the list, refused ones included, so a mod that is merely refused now is
-   * not mistaken for one that was removed.
+   * not mistaken for one that was removed. `updated` names mods whose files
+   * an Update (or a reinstall) replaced since the last Apply: the running
+   * server still has the old copy, so that is a change too, as `updated`.
    */
-  function pending({ baseline, checked, present, settings = {}, settingsBaseline = {} }) {
+  function pending({ baseline, checked, present, settings = {}, settingsBaseline = {}, updated = [] }) {
     const out = [];
     if (!baseline) return out;
     for (const [name, on] of Object.entries(checked)) {
@@ -65,12 +67,17 @@
         if (!out.some(p => p.name === name)) out.push({ name, change: 'settings' });
       }
     }
+    for (const name of updated) {
+      // Only a mod that is on in the server needs restarting for new files.
+      if (!present.includes(name) || out.some(p => p.name === name)) continue;
+      if (checked[name]) out.push({ name, change: 'updated' });
+    }
     return out;
   }
 
   /**
    * How many installed mods have an update waiting, for the red number on the
-   * Mods tab and its two sub-tabs. `updates` is check_mod_updates' answer by
+   * Mods tab and its Updates sub-tab. `updates` is check_mod_updates' answer by
    * name; a lookup that failed, or a mod no longer in the registry, is not an
    * update. `installed` is the names in the last mod listing, or null when
    * there has been none yet: a mod removed since the lookup no longer counts.
@@ -90,10 +97,28 @@
     return n > 0 ? `${n} mod update${n === 1 ? '' : 's'} available` : '';
   }
 
-  /** The header's warning for a list from pending(), or '' for none. */
+  /** The Apply bar's headline for a list from pending(), or '' for none. */
   function pendingText(changes) {
     if (!changes.length) return '';
-    return 'You have changes to mods that aren’t applied yet — press Apply.';
+    const n = changes.length;
+    return `${n} change${n === 1 ? '' : 's'} to mods not applied yet — press Apply.`;
+  }
+
+  /** What each pending change is, in a few words, for under the headline. */
+  function pendingDetail(changes) {
+    const words = { on: 'on', off: 'off', removed: 'removed', settings: 'options changed', updated: 'updated' };
+    return changes.map(c => `${c.name} ${words[c.change] || c.change}`).join(' · ');
+  }
+
+  /**
+   * Whether Apply with these changes leaves the game to reopen. `client` is
+   * `{ name: true|false }` from the listing (mods.rs has_client_layers); a
+   * mod it does not know -- an older supervisor, or one removed before it was
+   * ever listed -- is taken as client-side, which is what Apply always said
+   * before the app could tell.
+   */
+  function needsReopen(changes, client) {
+    return changes.some(c => !client || client[c.name] !== false);
   }
 
   /**
@@ -110,5 +135,5 @@
       : { text: 'Mods applied. They load the next time you open the game.', button: 'Open game' };
   }
 
-  return { adopt, applied, pending, pendingText, appliedNotice, updateCount, updateCountLabel };
+  return { adopt, applied, pending, pendingText, pendingDetail, needsReopen, appliedNotice, updateCount, updateCountLabel };
 });

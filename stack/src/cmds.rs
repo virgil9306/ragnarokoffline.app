@@ -1105,6 +1105,46 @@ fn image_marker(fingerprint: &str, actual: &[(&str, Option<String>)]) -> String 
     format!("v2:{fingerprint}:{}\n", ids.join(":"))
 }
 
+/// Untagged images, from `images --format json` (one object per line).
+///
+/// Every update loads the new bundle and moves both tags onto it, which leaves
+/// the previous release's images behind with no tag -- about 350 MB each time,
+/// on a data disk of fixed size, until a load fails for want of space. Nothing
+/// else in the engine is untagged: the server images and nebula's own pause
+/// image all carry tags.
+fn untagged_images(listing: &str) -> Vec<(String, u64)> {
+    listing.lines().filter_map(|line| {
+        let v = crate::json::parse(line.trim()).ok()?;
+        let tags: Vec<&str> = match v.get("RepoTags") {
+            Some(crate::json::Value::Array(a)) => a.iter().filter_map(|t| match t { crate::json::Value::String(s) => Some(s.as_str()), _ => None }).collect(),
+            None | Some(crate::json::Value::Null) => Vec::new(),
+            _ => return None,
+        };
+        if !tags.iter().all(|t| t.is_empty() || *t == "<none>:<none>") { return None; }
+        let id = v.str("Id")?.to_string();
+        let size = match v.get("Size") { Some(crate::json::Value::Number(n)) if *n > 0.0 => *n as u64, _ => 0 };
+        Some((id, size))
+    }).collect()
+}
+
+/// Remove the images earlier updates left behind. Never forced: the engine
+/// refuses an image a container still uses, and that one is simply tried
+/// again at the next start. Best effort, so a failure here never stops a start.
+/// (`image prune` cannot do this: nebula's engine answers it without deleting.)
+fn prune_old_images(dk: &Docker) {
+    let Ok(listing) = dk.output(["images", "--format", "json"]) else { return };
+    let (mut removed, mut freed) = (0, 0u64);
+    for (id, size) in untagged_images(&listing) {
+        if dk.quiet(["rmi", &id]) {
+            removed += 1;
+            freed += size;
+        }
+    }
+    if removed > 0 {
+        println!("Removed {removed} old server image(s), {} MB", freed / 1_000_000);
+    }
+}
+
 fn ensure_images(cfg: &Config, dk: &Docker) -> Result<(), String> {
     let tags = [cfg.image.as_str(), cfg.db_image.as_str()];
     let current = |dk: &Docker| tags.iter().map(|t| (*t, image_id(dk, t))).collect::<Vec<_>>();
@@ -1125,6 +1165,9 @@ fn ensure_images(cfg: &Config, dk: &Docker) -> Result<(), String> {
     }
     // Skip the load when the tags already point at this bundle (a marker from an older release, say).
     if !images_match(&expected, &before) {
+        // Before the load, not only after: an install whose disk is already
+        // full of old releases would otherwise fail here forever.
+        prune_old_images(dk);
         phase(cfg, "Loading the bundled server images…");
         // "Done" is the bundle's own images being in place -- not merely some
         // image under each tag. On an upgrade the previous release's images
@@ -1263,6 +1306,9 @@ const COMPANION_COLUMNS: &[(&str, &str)] = &[
     // v10: companions belong to a character, not an account. 0 on an existing row means
     // "saved before this"; the first character of that account to log in claims it.
     ("owner_char_id", "INT UNSIGNED NOT NULL DEFAULT 0"),
+    // v11: every worn piece in full -- refine, cards, options -- where the *_nameid
+    // columns keep only an id. NULL on an existing row, which recalls as it always did.
+    ("gear_detail", "TEXT NULL DEFAULT NULL"),
 ];
 
 /// Indexes added after the table first shipped, as (name, columns).
@@ -1853,6 +1899,9 @@ pub fn up(cfg: &Config, dk: &Docker, lan: bool, ram_mib: Option<u32>) -> Result<
     // world is ready: this is the only moment rAthena's verdict on the mods'
     // own tables exists, and it exists in its log and nowhere else.
     crate::mods::record_load_report(cfg, dk);
+    // Every container is now on the current images, so whatever an update
+    // left behind is free to go.
+    prune_old_images(dk);
     phase(cfg, "Ready");
     println!("stack up");
     // The one string a host pastes to a friend. Printed rather than only
@@ -2694,6 +2743,24 @@ pub(crate) fn human(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn untagged_images_are_the_ones_updates_leave_behind() {
+        // Lines as nebula's docker-slim prints them (trimmed of fields not read).
+        let listing = concat!(
+            r#"{"Containers":-1,"Id":"sha256:069718ce","Labels":{"app.ragnarokoffline.private-db-files":"v1"},"RepoDigests":[],"RepoTags":["ragnarokmac/mariadb:11.4"],"Size":81655296}"#, "\n",
+            r#"{"Containers":-1,"Id":"sha256:4ebf8add","Labels":{},"RepoDigests":[],"RepoTags":["<none>:<none>"],"Size":266510848}"#, "\n",
+            r#"{"Containers":-1,"Id":"sha256:9c5431bd","Labels":{},"RepoDigests":[],"RepoTags":["ragnarokmac/rathena:20221005"],"Size":270085120}"#, "\n",
+            r#"{"Containers":-1,"Id":"sha256:7dcc8385","Labels":{},"RepoDigests":[],"RepoTags":[],"Size":81655296}"#, "\n",
+            r#"{"Containers":-1,"Id":"sha256:f363fabf","Labels":{},"RepoDigests":[],"RepoTags":["nebula/pause:slim"],"Size":363904}"#, "\n",
+            "not json\n",
+        );
+        assert_eq!(super::untagged_images(listing), vec![
+            ("sha256:4ebf8add".to_string(), 266510848),
+            ("sha256:7dcc8385".to_string(), 81655296),
+        ]);
+        assert!(super::untagged_images("").is_empty());
+    }
 
     fn dump_file(tag: &str, body: &[u8]) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("ro-dump-{tag}-{}", std::process::id()));

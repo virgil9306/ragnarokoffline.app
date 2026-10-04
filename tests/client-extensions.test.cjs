@@ -440,6 +440,97 @@ test('api.players.gmLook turns parts of the GM look off, checks what it is given
     assert.equal(old.gmLook({ sprite: false }), null);
 });
 
+test('api.ui.scale scales the windows the client allows, checks what it is given and puts the sizes back on disposal', async () => {
+    const [, { createRuntime }] = await modules;
+    // The bridge as ExtensionBridge.mjs makes it, over the fork's UI/UIScale.js.
+    const own = new Map();
+    let global = 1;
+    const clamp = value => Math.min(3, Math.max(0.5, value));
+    const uiScale = {
+        windows: () => ['ShortCut', 'ChatBox', 'Inventory', 'StatusIcons'],
+        get: window => own.get(window) ?? 1,
+        set: (window, value) => { own.set(window, clamp(value)); return clamp(value); },
+        getGlobal: () => global,
+        setGlobal: value => { global = clamp(value); return global; },
+    };
+    const runtime = createRuntime();
+    runtime.configure({ uiScale });
+    const scope = runtime.scope('ui-scale');
+    const { scale } = scope.api.ui;
+    assert.equal(scale.supported(), true);
+    assert.deepEqual([...scale.windows()], ['ShortCut', 'ChatBox', 'Inventory', 'StatusIcons']);
+    assert.ok(Object.isFrozen(scale.windows()));
+
+    assert.equal(scale.setGlobal(1.5), 1.5);
+    assert.equal(scale.set('ShortCut', 2), 2);
+    assert.equal(scale.set('ShortCut', 5), 3, 'the client keeps a factor between 0.5 and 3');
+    assert.equal(scale.get('ShortCut'), 3);
+    assert.equal(scale.global(), 1.5);
+
+    assert.throws(() => scale.set('WorldMap', 2), TypeError, 'only the windows the client names');
+    assert.throws(() => scale.get('WorldMap'), TypeError);
+    assert.throws(() => scale.set('ChatBox', '2'), TypeError);
+    assert.throws(() => scale.setGlobal(NaN), TypeError);
+    assert.throws(() => scale.get(7), TypeError);
+
+    scope.dispose();
+    await Promise.resolve();
+    assert.equal(global, 1, 'turning the mod off puts the global factor back');
+    assert.equal(own.get('ShortCut'), 1, 'and each window it changed');
+    assert.throws(() => scale.set('ChatBox', 2), /disposed/);
+
+    // A client without UI/UIScale.js: everything stays at 1.
+    const old = createRuntime().scope('ui-scale').api.ui.scale;
+    assert.equal(old.supported(), false);
+    assert.deepEqual([...old.windows()], []);
+    assert.equal(old.get('ShortCut'), 1);
+    assert.equal(old.global(), 1);
+    assert.equal(old.set('ShortCut', 2), null);
+    assert.equal(old.setGlobal(2), null);
+});
+
+test('api.ui.menuButton puts a button in the option menu, checks its pictures and takes it out on disposal', async () => {
+    const [, { createRuntime }] = await modules;
+    // The bridge as ExtensionBridge.mjs makes it, over the fork's UI/MenuHooks.js.
+    const buttons = [];
+    const errors = [];
+    const runtime = createRuntime({ report: (...args) => errors.push(args) });
+    runtime.configure({ addMenuButton(button) {
+        buttons.push(button);
+        return () => buttons.splice(buttons.indexOf(button), 1);
+    } });
+    const scope = runtime.scope('ui-scale');
+    const { ui } = scope.api;
+    let pressed = 0;
+    const remove = ui.menuButton({ background: 'esc_uiscale_a.bmp', hover: 'esc_uiscale_b.bmp', down: 'esc_uiscale_c.bmp', title: 'UI Scale', onClick: () => { pressed++; } });
+    assert.equal(buttons.length, 1);
+    assert.deepEqual({ ...buttons[0], onClick: undefined }, { background: 'esc_uiscale_a.bmp', hover: 'esc_uiscale_b.bmp', down: 'esc_uiscale_c.bmp', title: 'UI Scale', onClick: undefined });
+    buttons[0].onClick();
+    assert.equal(pressed, 1);
+
+    // A handler that throws is reported under the plugin's name, not thrown into the menu.
+    ui.menuButton({ background: 'other_a.bmp', onClick() { throw new Error('boom'); } });
+    assert.doesNotThrow(() => buttons[1].onClick());
+    assert.match(errors[0][0], /ui-scale/);
+
+    for (const bad of [null, {}, { background: '../x.bmp', onClick() {} }, { background: 'https://example.com/a.bmp', onClick() {} },
+        { background: 'a.bmp', hover: 'b.exe', onClick() {} }, { background: 'a.bmp', onClick: 'no' }]) {
+        assert.throws(() => ui.menuButton(bad), TypeError);
+    }
+    assert.equal(buttons.length, 2);
+
+    remove();
+    assert.equal(buttons.length, 1);
+    scope.dispose();
+    await Promise.resolve();
+    assert.equal(buttons.length, 0, 'turning the mod off takes its buttons out');
+    assert.throws(() => ui.menuButton({ background: 'a.bmp', onClick() {} }), /disposed/);
+
+    // A client without UI/MenuHooks.js: nothing to add to.
+    const old = createRuntime().scope('ui-scale').api.ui;
+    assert.equal(typeof old.menuButton({ background: 'a.bmp', onClick() {} }), 'function');
+});
+
 test('gm-class-look draws GMs as their class and keeps the name and chat styles unless told not to', async () => {
     const { parts, default: init } = await import('../mods/gm-class-look/client/index.js');
     assert.deepEqual(parts({}), { sprite: false, name: true, chat: true });

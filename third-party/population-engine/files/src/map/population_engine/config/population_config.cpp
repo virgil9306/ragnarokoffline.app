@@ -938,6 +938,49 @@ uint64 PopulationVendorDatabase::parseBodyNode(const ryml::NodeRef& node)
 		}
 	}
 
+	// RAGNAROKMAC: StockTitles: signs that name what is for sale, used only when
+	// a stall's own pick bears them out (Needs: all of these, Any: one of
+	// these), with {item} and {price} filled from its stock. They join the
+	// TitleFromPool signs at that moment. Older builds ignore the key and show
+	// TitleFromPool alone, so a mod keeps item names out of that list.
+	if (this->nodeExists(node, "StockTitles")) {
+		const ryml::NodeRef& st_node = node[c4::to_csubstr("StockTitles")];
+		if (st_node.is_seq()) {
+			for (const ryml::NodeRef& tn : st_node.children()) {
+				PopulationStockTitle st;
+				if (!this->asString(tn, "Title", st.text) || st.text.empty()) {
+					this->invalidWarning(tn, "VendorKey '%s': a StockTitles entry needs Title; skipped.\n", key.c_str());
+					continue;
+				}
+				std::string unknown;
+				auto read_items = [&](const char* field, std::vector<t_itemid>& out) {
+					if (!this->nodeExists(tn, field))
+						return;
+					const ryml::NodeRef& ln = tn[c4::to_csubstr(field)];
+					if (!ln.is_seq())
+						return;
+					for (const ryml::NodeRef& in : ln.children()) {
+						std::string name;
+						if (!ryml::read(in, &name) || name.empty())
+							continue;
+						if (auto idata = item_db.searchname(name.c_str()))
+							out.push_back(static_cast<t_itemid>(idata->nameid));
+						else if (unknown.empty())
+							unknown = name;
+					}
+				};
+				read_items("Needs", st.needs);
+				read_items("Any", st.any);
+				if (!unknown.empty()) {
+					this->invalidWarning(tn, "VendorKey '%s': StockTitles \"%s\" names unknown item '%s'; skipped.\n",
+						key.c_str(), st.text.c_str(), unknown.c_str());
+					continue;
+				}
+				entry.stock_titles.push_back(std::move(st));
+			}
+		}
+	}
+
 	// RAGNAROKMAC: Spawns: makes this a *mod vendor*. Its shells come from the mod
 	// vendor pass, never from VendorPlacement, so a mod cannot change where or how
 	// many of the engine's own vendors (or another mod's) appear. Each block is
@@ -1022,6 +1065,38 @@ uint64 PopulationVendorDatabase::parseBodyNode(const ryml::NodeRef& node)
 				if (this->nodeExists(sn, "ScaleWithDensity")) {
 					bool b = false;
 					if (this->asBool(sn, "ScaleWithDensity", b)) sp.scale_with_density = b;
+				}
+				// RAGNAROKMAC: Fill: Lanes fills the Areas one at a time, in the
+				// order listed, each shell beside another; Random (the default)
+				// spreads them over all of them.
+				if (this->nodeExists(sn, "Fill")) {
+					std::string fill;
+					if (this->asString(sn, "Fill", fill)) {
+						std::transform(fill.begin(), fill.end(), fill.begin(), ::tolower);
+						if (fill == "lanes")
+							sp.fill_lanes = true;
+						else if (fill != "random")
+							this->invalidWarning(sn, "VendorKey '%s': Fill must be Lanes or Random; using Random.\n", key.c_str());
+					}
+				}
+				// RAGNAROKMAC: LaneFillPct: N or [min, max] (1-100): with Fill: Lanes,
+				// the share of a lane's usable cells its shells take before the next
+				// lane opens, rolled per lane. 100, the default, fills each lane.
+				if (this->nodeExists(sn, "LaneFillPct")) {
+					const ryml::NodeRef& pn = sn[c4::to_csubstr("LaneFillPct")];
+					int32_t lo = 100, hi = 100;
+					bool ok = false;
+					if (pn.is_seq() && pn.num_children() == 2)
+						ok = ryml::read(pn[0], &lo) && ryml::read(pn[1], &hi);
+					else if (pn.has_val())
+						ok = ryml::read(pn, &lo) && ((hi = lo), true);
+					if (ok) {
+						if (lo > hi) std::swap(lo, hi);
+						sp.lane_fill_min = std::max(1, std::min(100, static_cast<int>(lo)));
+						sp.lane_fill_max = std::max(1, std::min(100, static_cast<int>(hi)));
+					} else {
+						this->invalidWarning(sn, "VendorKey '%s': LaneFillPct must be a number or [min, max]; using 100.\n", key.c_str());
+					}
 				}
 				sp.spawn_id = key + "#" + sp.map + "#" + std::to_string(idx++);
 				entry.spawns.push_back(std::move(sp));
@@ -1677,16 +1752,37 @@ uint64 PopulationEngineDatabase::parseBodyNode(const ryml::NodeRef& node)
 		if (!this->asString(node, "GearSetName", name) || name.empty())
 			return 0;
 		PopulationGearSet gs;
-		this->parseEquipSlotPool(node, {"Weapon",     "weapon"     }, EQP_HAND_R,                        gs.weapon_pool,      0);
-		this->parseEquipSlotPool(node, {"Shield",     "shield"     }, EQP_HAND_L,                        gs.shield_pool,      0);
-		this->parseEquipSlotPool(node, {"HeadTop",    "head_top"   }, EQP_HEAD_TOP|EQP_COSTUME_HEAD_TOP, gs.head_top_pool,    0);
-		this->parseEquipSlotPool(node, {"HeadMid",    "head_mid"   }, EQP_HEAD_MID|EQP_COSTUME_HEAD_MID, gs.head_mid_pool,    0);
-		this->parseEquipSlotPool(node, {"HeadBottom", "head_bottom"}, EQP_HEAD_LOW|EQP_COSTUME_HEAD_LOW, gs.head_bottom_pool, 0);
-		this->parseEquipSlotPool(node, {"Armor",      "armor"      }, EQP_ARMOR,                         gs.armor_pool,       0);
-		this->parseEquipSlotPool(node, {"Garment",    "garment"    }, EQP_GARMENT|EQP_COSTUME_GARMENT,   gs.garment_pool,     0);
-		this->parseEquipSlotPool(node, {"Shoes",      "shoes"      }, EQP_SHOES,                         gs.shoes_pool,       0);
-		this->parseEquipSlotPool(node, {"AccL",       "acc_l"      }, EQP_ACC_L,                         gs.acc_l_pool,       0);
-		this->parseEquipSlotPool(node, {"AccR",       "acc_r"      }, EQP_ACC_R,                         gs.acc_r_pool,       0);
+		// RAGNAROKMAC: a pre-renewal server takes a slot from the set's PreRenewal block when the
+		// block has it. Most sets are built from renewal-only items (the Paradise/Eden gear), which
+		// the pre-renewal item db lacks; every one was skipped there, and a slot with nothing left
+		// spawned empty (#325). Renewal ignores the block.
+#ifndef RENEWAL
+		const bool has_pre = this->nodeExists(node, "PreRenewal");
+		const ryml::NodeRef pre_node = has_pre ? node[c4::to_csubstr("PreRenewal")] : node;
+#endif
+		auto slot = [&](std::initializer_list<const char*> keys, uint32_t flag, std::vector<uint16_t>& pool) {
+#ifndef RENEWAL
+			if (has_pre) {
+				for (const char* k : keys) {
+					if (this->nodeExists(pre_node, std::string(k))) {
+						this->parseEquipSlotPool(pre_node, keys, flag, pool, 0);
+						return;
+					}
+				}
+			}
+#endif
+			this->parseEquipSlotPool(node, keys, flag, pool, 0);
+		};
+		slot({"Weapon",     "weapon"     }, EQP_HAND_R,                        gs.weapon_pool);
+		slot({"Shield",     "shield"     }, EQP_HAND_L,                        gs.shield_pool);
+		slot({"HeadTop",    "head_top"   }, EQP_HEAD_TOP|EQP_COSTUME_HEAD_TOP, gs.head_top_pool);
+		slot({"HeadMid",    "head_mid"   }, EQP_HEAD_MID|EQP_COSTUME_HEAD_MID, gs.head_mid_pool);
+		slot({"HeadBottom", "head_bottom"}, EQP_HEAD_LOW|EQP_COSTUME_HEAD_LOW, gs.head_bottom_pool);
+		slot({"Armor",      "armor"      }, EQP_ARMOR,                         gs.armor_pool);
+		slot({"Garment",    "garment"    }, EQP_GARMENT|EQP_COSTUME_GARMENT,   gs.garment_pool);
+		slot({"Shoes",      "shoes"      }, EQP_SHOES,                         gs.shoes_pool);
+		slot({"AccL",       "acc_l"      }, EQP_ACC_L,                         gs.acc_l_pool);
+		slot({"AccR",       "acc_r"      }, EQP_ACC_R,                         gs.acc_r_pool);
 		if (this->nodeExists(node, "Arrow")) {
 			bool arrow = true;
 			if (this->asBool(node, "Arrow", arrow))
@@ -2288,6 +2384,7 @@ uint64 PopulationEngineDatabase::parseBodyNode(const ryml::NodeRef& node)
 // keep their YAML price. Read at load and on every reload.
 
 static std::vector<std::string> s_pop_price_files;
+std::unordered_map<std::string, std::unordered_map<t_itemid, PopMarketRow>> g_pop_market_tables;
 
 static void pop_collect_price_file(const char* path) {
 	const size_t n = strlen(path);
@@ -2308,6 +2405,7 @@ void PopulationVendorDatabase::loadingFinished() {
 	if (check_filepath(dir.c_str()) != 1)
 		return; // no mod ships a price table
 	s_pop_price_files.clear();
+	g_pop_market_tables.clear();
 	findfile(dir.c_str(), ".csv", pop_collect_price_file);
 	std::sort(s_pop_price_files.begin(), s_pop_price_files.end());
 
@@ -2322,6 +2420,7 @@ void PopulationVendorDatabase::loadingFinished() {
 			continue;
 		}
 		std::unordered_map<t_itemid, std::pair<uint32_t, uint32_t>> prices;
+		auto& market = g_pop_market_tables[prefix];
 		char buf[1024];
 		int line = 0;
 		while (fgets(buf, sizeof(buf), fp) != nullptr) {
@@ -2366,10 +2465,24 @@ void PopulationVendorDatabase::loadingFinished() {
 			}
 			const uint32_t lo = static_cast<uint32_t>(strtoul(col[2].c_str(), nullptr, 10));
 			uint32_t hi = col.size() > 3 && !col[3].empty() ? static_cast<uint32_t>(strtoul(col[3].c_str(), nullptr, 10)) : lo;
-			if (lo == 0)
+			// RAGNAROKMAC: BuyersPerDay and SellersPerDay (columns 6 and 7, after
+			// Source) are for the customers who visit players' stalls. Whole
+			// numbers, so a locale's decimal comma cannot split a row.
+			PopMarketRow mrow;
+			if (col.size() > 5 && !col[5].empty())
+				mrow.buyers_day = static_cast<int32_t>(strtol(col[5].c_str(), nullptr, 10));
+			if (col.size() > 6 && !col[6].empty())
+				mrow.sellers_day = static_cast<int32_t>(strtol(col[6].c_str(), nullptr, 10));
+			if (lo == 0) {
+				if (mrow.buyers_day >= 0 || mrow.sellers_day >= 0)
+					market[id] = mrow;
 				continue; // 0 (or empty) = no price set yet; the YAML price stands
+			}
 			if (hi < lo) hi = lo;
 			prices[id] = { std::min<uint32_t>(lo, MAX_ZENY), std::min<uint32_t>(hi, MAX_ZENY) };
+			mrow.lo = prices[id].first;
+			mrow.hi = prices[id].second;
+			market[id] = mrow;
 		}
 		fclose(fp);
 

@@ -12,7 +12,7 @@ OnInit:
 	.@mod$ = "prontera-vendors";
 	population_vendor_limit "prontera-vendors/", callfunc("F_ModSetting", .@mod$, "respect_limit", 1);
 	population_vendor_price "prontera-vendors/", callfunc("F_ModSetting", .@mod$, "price_pct", 100);
-	.@buy = callfunc("F_ModSetting", .@mod$, "buy_shops", 1) ? callfunc("F_ModSetting", .@mod$, "buy_stalls", 20) : 0;
+	.@buy = callfunc("F_ModSetting", .@mod$, "buy_shops", 1) ? callfunc("F_ModSetting", .@mod$, "buy_stalls", 30) : 0;
 	population_vendor_count "prontera-vendors/buy/", .@buy;
 	end;
 }

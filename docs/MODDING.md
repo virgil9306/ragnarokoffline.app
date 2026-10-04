@@ -13,7 +13,8 @@ rebuild, no compiler, no Docker.
 ├── data/        client assets: sprites, textures, map geometry, Lua
 ├── BGM/         music, merged over the client's own tracks
 ├── System/      client tables: itemInfo.lua and friends
-└── client/      a roBrowser plugin: styling, viewport, UI
+├── client/      a roBrowser plugin: styling, viewport, UI
+└── host/        a host route: JavaScript that answers requests on the host's computer
 ```
 
 The mods directory is:
@@ -89,6 +90,9 @@ patchwork. Any other value is refused by name; leave it out for everything
 else. See [UI skins](#ui-skins). (An app from before
 this key ignores it, so a skin still loads there, just without the others
 being switched off.)
+
+`"host"` declares a [host route](#host-routes): JavaScript of the mod's own
+that runs on the host's computer, and the addresses it may connect to.
 
 ### renewalFolder / prerenewalFolder — one mod for both eras
 
@@ -266,7 +270,7 @@ sets several, a preview — a mod can ship its own settings page:
 }
 ```
 
-The Mods tab then shows a **Settings…** button under the mod instead of drawing
+The mod's row in the Mods tab then shows a **Settings…** button instead of drawing
 the options itself, and the page opens in a window the mod owns. The options
 are still declared in `settings` — that is what the app validates, stores and
 hands to `init(parameters, api)` and `npc/when/` — the page only decides how
@@ -300,7 +304,7 @@ options in the Mods tab as before. See
 
 ## Installing a mod
 
-**Settings → Mods → Install a mod…** takes a folder, a `.zip` or a `.rar` and
+**Settings → Mods → Add mod from folder…** takes a folder, a `.zip` or a `.rar` and
 puts it in the right place. An archive must contain exactly one folder, named
 for the mod; anything with two top-level folders, a link, or a path that would
 escape the mods directory, is refused rather than unpacked.
@@ -314,14 +318,14 @@ on Arch and SteamOS) or unpack the archive and choose the folder.
 Or do it by hand: drop the folder in the mods directory yourself. Same result.
 
 A UI skin or a cursor pack in the official client's format is not a mod yet;
-**Install a UI skin…** makes it one. See [UI skins](#ui-skins).
+**Add UI skin…** makes it one. See [UI skins](#ui-skins).
 
 A mod adds scripts and tables to your server and can run JavaScript in the game
 window. Installing one is running somebody's code — install ones you trust.
 
 ## Turning mods off
 
-Settings → Mods lists what is installed with a checkbox each. Under the hood
+Settings → Mods → Installed lists what is installed with a switch each. Under the hood
 that is `state/mods/disabled.txt`, one name per line. Disable by naming it
 there rather than by moving the folder: a folder that moves loses its place in
 the merge order.
@@ -1417,7 +1421,7 @@ there, the same names the official client uses, so the official client's skin
 format maps onto it almost one to one: a skin's root is that folder's root, and
 its `basic_interface/` is that folder's `basic_interface/`.
 
-**Settings → Mods → Install a UI skin…** does the conversion. Give it a skin
+**Settings → Mods → Add UI skin…** does the conversion. Give it a skin
 folder — the one you would put in the official client's `skin/` directory — or
 a `.zip` or `.rar` of one, and it builds a mod named `skin-<name>`, switches it on, and
 switches whichever skin was on off. It is client-side only, so there is no
@@ -1466,7 +1470,7 @@ What a skin cannot change:
 ### Cursor packs
 
 The mouse pointer is a sprite, `data/sprite/cursors.spr` and `cursors.act`,
-and a mod that ships those two replaces it. Give **Install a UI skin…** a
+and a mod that ships those two replaces it. Give **Add UI skin…** a
 folder or archive holding them — most travel as a `.rar`, which macOS and
 Windows open with their built-in `tar`, and Linux with `bsdtar` if it is
 installed; otherwise unpack it and choose the folder — and it builds a
@@ -1732,7 +1736,7 @@ It is a supported interface, not a sandbox for untrusted JavaScript.
 
 | API | Contract |
 | --- | --- |
-| `api.on(event, listener, { replay: true })` | Returns an unsubscribe function; subscriptions also end at disposal. Events: `map:enter`, `map:leave`, `connection`, `ui:append`, `ui:remove`, `movement:clear`, `preferences:change`, `item:use` (`{ itemId }`, the item's id, sent when the client asks to use it -- before the server says whether it worked), and `exit` (`{ to, from }`, the player chose to leave -- [below](#leaving-the-game-and-remembered-logins--exit-and-apiaccount)). |
+| `api.on(event, listener, { replay: true })` | Returns an unsubscribe function; subscriptions also end at disposal. Events: `map:enter`, `map:leave`, `connection`, `ui:append`, `ui:remove`, `movement:clear`, `preferences:change`, `item:use` (`{ itemId }`, the item's id, sent when the client asks to use it -- before the server says whether it worked), `server:event` (`{ command, text }`, a mod's server script speaking first -- [below](#windows-and-server-requests)), and `exit` (`{ to, from }`, the player chose to leave -- [below](#leaving-the-game-and-remembered-logins--exit-and-apiaccount)). |
 | `api.snapshot()` | Frozen copy of map, connection, player position/HP/SP/name/`characterId`, selected target identity/name/HP, camera, packet version and movement counters. Server movement acknowledgements are read-only evidence. |
 | `api.components.current()` | Mounted `{ name, root, host }` descriptors. DOM references support styling; do not retain detached components after `ui:remove`. |
 | `api.preferences.get(key, fallback)` / `.set(key, value)` | JSON values isolated by plugin, browser and server origin. Storage failure is reported by `set`. Do not store secrets. |
@@ -1744,11 +1748,14 @@ It is a supported interface, not a sandbox for untrusted JavaScript.
 | `api.server.command(text)` | Sends an `@` or `#` command as if the player had typed it in chat, so the server allows exactly what the player's group allows. Anything else is refused; returns whether it was sent. |
 | `api.graphics.registerPass({ name, fragment, uniforms, enabled })` | A full-screen GLSL pass over each frame, after bloom and before anti-aliasing. Returns a function that removes it; it also goes when the plugin does. See [Graphics passes](#graphics-passes). |
 | `api.ui.window({ id, title, width, height, resizable })` | A window of the plugin's own; fill its `body`. `show`, `hide`, `toggle`, `isOpen`, `setTitle`, `onClose`. See [Windows and server requests](#windows-and-server-requests). |
+| `api.ui.scale.windows()` / `.get(window)` / `.set(window, factor)` / `.global()` / `.setGlobal(factor)` / `.supported()` | Draw the client's own windows larger or smaller: a global factor times each window's own, 0.5 to 3. Put back when the plugin goes; the plugin remembers the player's choice. See [below](#window-sizes--apiuiscale). Absent in an older app. |
+| `api.ui.menuButton({ background, hover, down, title, onClick })` | A button of the mod's own in the option menu (Escape), drawn from pictures the mod ships like the menu's own. Returns a function that takes it out; it also goes with the plugin. See [below](#a-button-in-the-option-menu--apiuimenubutton). Absent in an older app. |
 | `api.items.search(text, limit)` / `.get(id)` / `.icon(id)` | Items from the client's own tables, mods' included: `{ id, name, description, slots }`, and an icon URL for an `<img>`. |
 | `api.server.request(command, text, { timeout })` | Ask the mod's server script for something; resolves with its answer. See [Windows and server requests](#windows-and-server-requests). |
 | `api.cleanup(fn)` | Register idempotent cleanup immediately after allocating a resource. The returned function can release it early. Runs on failure, scope replacement and page teardown. |
 | `api.screens.replace(screen, hook)` / `.stage(canvas)` / `.image(path)` | Draw the login screen, server list, character select or character creation yourself. See [below](#the-screens-before-the-game--apiscreens). |
 | `api.account.status()` / `.remember()` / `.resume()` / `.forget()` | A remembered login the page never holds, traded for a one-time login token. See [below](#leaving-the-game-and-remembered-logins--exit-and-apiaccount). |
+| `api.host.request(path, { method, body, timeout })` | Ask this mod's own [host route](#host-routes), on the host's computer, from the host's window or an invited friend's alike. Resolves `{ status, type, body, data }` for every answer (`data` is the parsed JSON, or `null`); rejects only when nothing answered. Absent in an older app. |
 
 ### Graphics passes
 
@@ -1873,8 +1880,8 @@ lamp glow, haze, tone mapping and more in a single pass.
 `api.ui.window` gives a plugin a window in the game's style: a title bar to
 drag it by, a close button, a corner to resize it, and a `body` element that is
 the plugin's to fill. It sits in its own shadow root, so a mod's CSS and the
-game's never meet. The game remembers where the player left it, and typing in
-it doesn't move the character or fire shortcuts.
+game's never meet. The game remembers where the player left it, and clicking
+or typing in it doesn't move the character or fire shortcuts.
 
 ```js
 const win = api.ui.window({ id: 'notes', title: 'Notes', width: 300, height: 200 });
@@ -1907,6 +1914,28 @@ A long answer can be split: `@@reply <n> 1/3 …`, `2/3 …`, `3/3 …`, and the
 parts are joined in order. A request that gets no answer rejects after its
 timeout (5 seconds by default). Only the server can send these lines, because
 anything a player says arrives with their name in front of it.
+
+The script can also speak first, without being asked — an NPC opening the
+mod's window when the player picks a menu option, for instance. It sends
+`@@event <command> <text>`; every plugin gets it as the client event
+`server:event`, and the line never shows in chat:
+
+```c
+	// in the NPC's dialogue
+	close2;
+	dispbottom "@@event mymod open";
+	end;
+```
+
+```js
+api.on('server:event', ({ command, text }) => {
+    if (command === 'mymod' && text === 'open') win.show();
+});
+```
+
+`<command>` takes the same form as a request's: lowercase letters, digits and
+`_`, starting with a letter. Use your mod's own, and check it, since every
+plugin hears every event.
 [`mods/ingame-database`](../mods/ingame-database) is a complete one: an item
 and monster lookup window.
 
@@ -2122,6 +2151,224 @@ call it from `init`, and it is put back when the mod is turned off. An app
 before 1.4.5 has no `api.players`, and a client without the switches answers
 `gmLookSupported()` with `false` (`gmLook` then returns `null`). It reads `Session.AdminLook` in the
 roBrowser fork. See [`mods/gm-class-look`](../mods/gm-class-look).
+
+### Window sizes — `api.ui.scale`
+
+Browser zoom (Ctrl +) makes every window larger at once and leaves the 3D view
+as it is. `api.ui.scale` goes further, one window at a time: a hotbar large
+enough to read from the couch, a chat that takes less room.
+
+```js
+if (api.ui?.scale?.supported()) {
+    const scale = api.ui.scale;
+    scale.setGlobal(api.preferences.get('all', 1));          // every window
+    scale.set('ShortCut', api.preferences.get('ShortCut', 1)); // times this one
+}
+```
+
+A window is drawn at the global factor times its own, and both are kept
+between 0.5 and 3; `set` and `setGlobal` return the factor in force (the
+client clamps), or `null` on a client that cannot scale. Setting a window to 1
+gives it the global factor back.
+
+Only the windows `windows()` names can be scaled: the hotbar (`ShortCut`,
+`ShortCuts`), the chat (`ChatBox`), `Inventory`, the status icons
+(`StatusIcons`), the HP/SP window (`BasicInfo`), `MiniMap`, the gamepad
+hotbar along the bottom (`JoystickUI`) and other windows
+the client has checked to keep dragging, resizing and scrolling at another
+size. A name it doesn't list is a `TypeError`, and so is a value that is not a
+number. A version of a window is scaled by its public name (the client's
+`InventoryV3` is `Inventory`), and every whisper window by `WhisperBox`.
+
+The client remembers nothing. Everything starts at 1, so a mod keeps the
+player's choice itself, in `api.preferences`, and sets it again in `init`,
+before the windows open. Turning the mod off puts back what it changed. The
+list and the drawing are `UI/UIScale.js` in the roBrowser fork.
+[`mods/ui-scale`](../mods/ui-scale) is a complete one: a window of sliders,
+opened from a button in the option menu.
+
+### A button in the option menu — `api.ui.menuButton`
+
+The option menu, the window Escape opens (and the basic info window's Option
+button), can carry a button of the mod's own. It comes after the menu's
+settings buttons and before Exit, and hides with them on the death menu.
+
+The menu's buttons are pictures with the label painted in, so a mod's is
+too: three of them in the client's interface folder, at rest, under the
+pointer and pressed, 221 x 20 like the menu's `esc_06a.bmp`. Ship them in the
+mod's `data/texture/ui/`:
+
+```js
+api.ui.menuButton({
+    background: 'esc_mymod_a.bmp',
+    hover: 'esc_mymod_b.bmp',
+    down: 'esc_mymod_c.bmp',
+    title: 'My Mod',               // tooltip and screen readers
+    onClick: () => win.toggle(),
+});
+```
+
+A picture is a plain relative name in that folder (`..`, a URL or anything
+but `.bmp`, `.tga`, `.png` or `.jpg` is a `TypeError`). `hover` and `down`
+are optional. Pressing the button leaves the menu open, as the settings
+buttons do. It returns a function that takes the button out, and the button
+also goes with the mod. A client without the menu hook has nowhere to put it,
+and the call does nothing. It is `UI/MenuHooks.js` in the roBrowser fork.
+[`mods/ui-scale/tools/make-menu-button.py`](../mods/ui-scale/tools/make-menu-button.py)
+letters a button of your own from the menu's Settings button.
+
+---
+
+## Host routes
+
+A host route is JavaScript of the mod's own that runs **on the host's
+computer** and answers HTTP requests from the game — from the host's own game
+window and from every friend invited through a sharing link. It is for what a
+friend's browser cannot do by itself: reach a program on the host's machine,
+such as a local AI model, and give everyone the same answer.
+
+It is somebody else's code running on the host's computer, so it runs in a
+box (below), it can connect only to the addresses its `mod.json` names, and it
+does **nothing until the host switches it on**.
+
+### mod.json
+
+```json
+{
+  "name": "host-local-ai",
+  "host": {
+    "entry": "host/index.js",
+    "connect": ["http://127.0.0.1:8080"]
+  }
+}
+```
+
+- **`entry`** — an ES module inside the mod's `host/` folder. Only `host/` is
+  served to the handler: it cannot read the rest of the mod, or anything else
+  on disk. `..`, absolute paths and links that lead out of `host/` are
+  refused.
+- **`connect`** — up to 8 origins the handler may `fetch`: `http://` or
+  `https://`, host and port, no path (`"http://127.0.0.1:8080"`, written the way
+  a browser writes it, so no trailing `/` and no `:80`). Leave it out, or `[]`,
+  for a handler that reaches nothing. The app's own ports — the asset server
+  (3338), login (6900), char (6121), map (5121), the agent API (7490) and the
+  sharing gateway (3339), or this copy's own if they were moved — are refused
+  on **any** host name, since a name can lead back to this machine.
+
+A mistake in `"host"` does not stop the rest of the mod from loading; its card
+in Settings says what is wrong, and the route stays off.
+
+### The handler
+
+```js
+// host/index.js
+export default async function handle(request, host) {
+    if (request.method === 'GET' && request.path === '/hello') {
+        return { body: { hello: request.from } };
+    }
+    return { status: 404, body: { error: 'Not found' } };
+}
+```
+
+`request`:
+
+| | |
+|---|---|
+| `method` | `GET`, `POST`, `PUT` or `DELETE` |
+| `path` | what follows the mod's name, starting with `/` (`/_friend/mod/host-local-ai/complete` → `/complete`) |
+| `query` | the query string without `?`, or `''` |
+| `headers` | `content-type` and `accept` only, when sent |
+| `body` | text, or `null`. JSON arrives as text: `JSON.parse(request.body)` |
+| `from` | `'host'` or `'friend'` |
+
+Return `{ status, type, body }`: `status` 200–599 (default 200); `body` a
+string, or an object sent as JSON; `type` the content type (default
+`application/json` for an object, `text/plain` for a string). Throwing, or
+returning anything else, answers 502 with a fixed message, and the details go
+to the host's app log only.
+
+`host` has `host.name`, `host.connect` and `host.log(...)`, which writes a
+line to the host's app log under the mod's name (at most 30 a minute). It has
+nothing else: no files, no Node, no Electron, no other mod.
+
+The module is loaded once and kept, so it can hold state between requests in
+module variables. It is started on the first request after the app starts,
+and again after it crashes, hangs, or the mod is updated or switched.
+
+### Asking it from the game
+
+```js
+const answer = await api.host.request('/complete', { method: 'POST', body: { prompt: 'Hi' } });
+if (answer.status === 200) console.log(answer.data.text);
+```
+
+`api.host.request` reaches only this plugin's own mod's route: the client
+binds the mod's name. On the host's window it goes to the app directly; on a
+friend's it is `fetch('/_friend/mod/<mod>/<path>')` on the sharing link. A mod
+that is off, not switched on as a host service, or has no route answers 404.
+
+All plugins share one page, so this is a convenience, not a wall between mods:
+a plugin can always `fetch` another mod's path on a friend's page itself.
+What *is* enforced is everything on the host's side.
+
+### The box, and the limits
+
+Each mod's handler runs in a hidden window of its own
+([`electron/mod-host/sandbox.js`](../electron/mod-host/sandbox.js)):
+
+- a sandboxed renderer with context isolation, no Node and no Electron APIs,
+  which cannot show itself, navigate, open windows, download, or be granted
+  any permission;
+- a session of its own, in memory only: no cookies, storage or cache shared
+  with the game, another mod, or the next start;
+- every request it makes is checked before it leaves: its own `host/` files,
+  and URLs whose origin is exactly one in `connect`. Anything else — another
+  host or port, WebSockets, `file:`, `data:` — is cancelled and logged, and
+  the page's Content-Security-Policy says the same again. Responses from the
+  `connect` origins are given CORS headers, so a local server that sends none
+  can still be read.
+
+The app enforces, outside the box:
+
+| | |
+|---|---|
+| request body | 200 KiB → 413 |
+| response body | 1 MiB → 502 |
+| time | 30 s per request → 504 |
+| at once | 4 requests per mod → 429 |
+| rate | 60 requests a minute per friend (and 60 for the host) → 429 |
+
+A friend's request carries no cookie, address or other header to the handler,
+and the answer carries back only its status, content type and body, under a
+Content-Security-Policy that stops it running script on the sharing link.
+`POST`, `PUT` and `DELETE` must come from the game's own page, with a JSON or
+plain-text body.
+
+### Switching it on
+
+**Settings → Mods** shows, in the open row of a mod that declares a host route, *"Runs a
+host service on this computer that friends you invite can use, and that may
+connect to: …"* with a switch. It is off for every mod until the host ticks it,
+and it takes effect at once, without Apply. The choice is stored, with the
+list it was made for, in `state/mod-host.json`; a mod update that changes
+`connect` switches it off again until the host has seen the new list. Removing
+the mod forgets it.
+
+### Who can reach it
+
+| | |
+|---|---|
+| the host, in the app | yes |
+| a friend, through a sharing link (Cloudflare) | yes, while sharing is on |
+| a player who joined over **LAN** | **no** |
+
+A LAN player loads the game straight from the host's asset server, not
+through the sharing gateway, and the asset server forwards only
+`/_friend/remember/` to the app (for remembered logins). `api.host.request`
+answers 404 there, the same as a mod with no route, so a mod should treat 404
+as "not available here". Inviting LAN players with a sharing link works.
+
+See [`examples/mods/host-local-ai`](../examples/mods/host-local-ai).
 
 ---
 

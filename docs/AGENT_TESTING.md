@@ -130,8 +130,10 @@ scripts/rotest world up && scripts/rotest start
 | `skills [filter]` | the character's skills: id, name, level, SP, range, target type |
 | `shot [name]` | a screenshot; prints the file path |
 | `walk <x> <y>` | clicks the map cell, waits for the walk to finish |
-| `attack [gid\|nearest]` | clicks the monster where the client picks it |
-| `skill <id> [lv] [--target <gid\|nearest>] [--cell <x> <y>] [--burst N]` | starts the cast the way the skill window does, then clicks the target; `--burst` takes N frames 150 ms apart, cropped to the player, from the moment of the cast |
+| `attack [gid\|nearest\|job:<mob id>] [--quick]` | clicks the monster where the client picks it; `job:1980` is the nearest of that kind, so a stray native monster can't take the click |
+| `skill <id> [lv] [--target <gid\|nearest\|job:<mob id>>] [--cell <x> <y>] [--burst N] [--quick]` | starts the cast the way the skill window does, then clicks the target; `--burst` takes N frames 150 ms apart, cropped to the player, from the moment of the cast. `--quick` (also on `attack`) returns as soon as the click is made, with no screenshot or wait, for scripted recordings |
+| `camera [zoom Z] [pitch P] [yaw Y] [--over ms]` | sets the camera and prints it; `--over` eases there, for pans and orbits. Stock values: zoom 125 (smaller is closer), pitch 230, yaw 0 |
+| `record start <name> [--dir D]`, `record stop` | records the page with the game's music and sound effects; `stop` writes `<name>.mp4` (1080p if the daemon was started with `--size 1920x1080`) to `D`, by default `$ROTEST_OUT/clips` |
 | `equip <itemId>` | equips an item already in the inventory (`gm "@item <id>"` first) |
 | `hover <x> <y> [--px]` | puts the cursor on a cell (or pixels) and reports what the client sees there |
 | `click <x> <y> [right]`, `key <key>` | raw input |
@@ -161,6 +163,36 @@ scripts/rotest shot after-hack
 `@warp` to a map before testing anything map-specific. `@monster <name|id>
 <count>` puts targets next to you. `@item`, `@baselvl`, `@joblvl`,
 `@jobchange`, `@allskill`, `@heal` and `@speed` cover most set-up.
+
+## Recording a clip
+
+Start the daemon at the size you want the video (`rotest start --size
+1920x1080`), set the scene, then wrap the action in `record start` and `record
+stop`. Video is Chromium's screencast (about 60 fps), audio is everything the
+client plays, both mixed into an H.264/AAC MP4 at 30 fps.
+
+```sh
+scripts/rotest gm "@warp prt_fild08 200 200"
+scripts/rotest camera zoom 110 pitch 228
+scripts/rotest record start dk-breath --dir ~/Downloads/clips
+scripts/rotest gm "@monster 1023 16"
+scripts/rotest walk 200 194                                  # they charge in
+scripts/rotest skill 6001 10 --target nearest --quick         # Dragonic Breath
+scripts/rotest wait 2500
+scripts/rotest record stop
+```
+
+Things that cost a take:
+
+- A targeted skill clicked while the character is auto-attacking is not sent.
+  `walk` to the character's own cell first to drop the attack, then cast.
+- A relog starts at the save point; `@save` where the scene is.
+- `@mount` toggles. A Dragon Knight who relogs keeps the dragon, and a second
+  `@mount` takes it away (Dragonic Breath needs it).
+- MVPs often carry `DamageTaken` in `db/re/mob_db.yml` (Baphomet and Boitata
+  take 10%), which makes every number small.
+- Native monsters keep fighting between takes. A field with weak natives
+  (`prt_fild08`) is easier than a dungeon.
 
 ## Sweeping a job's skills
 

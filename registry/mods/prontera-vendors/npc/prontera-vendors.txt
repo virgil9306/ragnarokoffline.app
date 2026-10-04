@@ -8,7 +8,7 @@
 	end;
 OnInit:
 	.@mod$ = "prontera-vendors";
-	.@sell = callfunc("F_ModSetting", .@mod$, "sell_shops", 1) ? callfunc("F_ModSetting", .@mod$, "vendors", 20) : 0;
+	.@sell = callfunc("F_ModSetting", .@mod$, "sell_shops", 1) ? callfunc("F_ModSetting", .@mod$, "vendors", 30) : 0;
 	population_vendor_count "prontera-vendors/sell/", .@sell;
 	population_vendor_rotation "prontera-vendors/", callfunc("F_ModSetting", .@mod$, "rotation_minutes", 240);
 	.@gap = callfunc("F_ModSetting", .@mod$, "callout_seconds", 180);

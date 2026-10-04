@@ -1,0 +1,182 @@
+//===== Ragnarok Offline mod: autoloot =======================
+//= Answers the Autoloot window (client/index.js):
+//=   @modaloot <id> get
+//=   @modaloot <id> rate <0..10000>          in 0.01%; 0 is off
+//=   @modaloot <id> type <+|-><item type>    0 2 3 4 5 6 7 8 10
+//=   @modaloot <id> add <item id>
+//=   @modaloot <id> remove <item id>
+//=   @modaloot <id> off
+//=   @modaloot <id> mob <monster name or id>
+//=   @modaloot <id> save <slot> <name>        slot 0..4: the current settings
+//=   @modaloot <id> rename <slot> <name>      keeps the slot's settings
+//=   @modaloot <id> load <slot>
+//=   @modaloot <id> delete <slot>
+//= Everything but "mob" answers with the state after the change:
+//=   <rate>|<type mask>|<item limit>|<autoloot_adjust>|<id>,<id>,...|
+//=   <preset name>;<preset name>;...          one per slot, "" if empty
+//= "mob" answers with the monster's drops, or nothing if there is none:
+//=   <mob id>|<name>|<item>:<base rate>:<your rate>:<item type>,...
+//= Answers longer than 200 characters go out in parts (@@reply n k/N).
+//=
+//= Changes run @autoloot, @autoloottype and @autolootitem through
+//= 'atcommand', which does not ask whether the player may use them, so
+//= the window works on a server that keeps those commands for GMs.
+//= The server keeps @autoloot and @autoloottype across logins; the
+//= @autolootitem list it does not, so it is kept here in
+//= ModAutolootItem[] and put back at login.
+//=
+//= Presets are kept on the character too: ModAutolootName$[slot],
+//= ModAutolootRate[slot], ModAutolootType[slot], and the items in
+//= ModAutolootP<slot>[]. A slot with no name is empty.
+//=
+//= getautolootitems, setautolootitems and getmobdroprate are from the
+//= rAthena fork, which also keeps @autoloot / @autoloottype in AUTOLOOT_RATE /
+//= AUTOLOOT_TYPE and lets the @autolootid list hold 100 items.
+//============================================================
+
+-	script	autoloot#mod	-1,{
+	end;
+
+OnInit:
+	// The item types @autoloottype takes, by number.
+	setarray .types[0], 0, 2, 3, 4, 5, 6, 7, 8, 10;
+	.presets = 5;
+	// Everyone may ask (level 0): this is the player's own looting.
+	bindatcmd "modaloot", strnpcinfo(3) + "::OnQuery", 0, 99;
+	end;
+
+OnQuery:
+	.@request$ = .@atcmd_parameters$[0];
+	.@action$ = .@atcmd_parameters$[1];
+	.@value$ = .@atcmd_parameters$[2];
+
+	if (.@action$ == "rate") {
+		callsub S_Rate, atoi(.@value$);
+	} else if (.@action$ == "type") {
+		.@sign$ = charat(.@value$, 0);
+		.@type$ = delchar(.@value$, 0);
+		.@type = atoi(.@type$);
+		if ((.@sign$ == "+" || .@sign$ == "-") && .@type$ != "" && inarray(.types[0], .@type) >= 0)
+			atcommand "@autoloottype " + .@sign$ + .@type;
+	} else if (.@action$ == "add" || .@action$ == "remove") {
+		.@item = atoi(.@value$);
+		if (.@item > 0) {
+			atcommand "@autolootitem " + (.@action$ == "add" ? "+" : "-") + .@item;
+			callsub S_Save;
+		}
+	} else if (.@action$ == "off") {
+		atcommand "@autoloot 0";
+		atcommand "@autoloottype reset";
+		atcommand "@autolootitem reset";
+		callsub S_Save;
+	} else if (.@action$ == "save" || .@action$ == "rename" || .@action$ == "load" || .@action$ == "delete") {
+		.@slot = atoi(.@value$);
+		if (.@value$ != "" && .@slot >= 0 && .@slot < .presets) {
+			if (.@action$ == "save" || (.@action$ == "rename" && ModAutolootName$[.@slot] != "")) {
+				.@name$ = "";
+				for (.@i = 3; .@i < .@atcmd_numparameters; .@i++)
+					.@name$ += (.@i > 3 ? " " : "") + .@atcmd_parameters$[.@i];
+				// | and ; separate the answer's fields.
+				.@name$ = replacestr(replacestr(.@name$, "|", ""), ";", "");
+				if (getstrlen(.@name$) > 24)
+					.@name$ = substr(.@name$, 0, 23);
+				if (.@name$ == "")
+					.@name$ = "Preset " + (.@slot + 1);
+				ModAutolootName$[.@slot] = .@name$;
+			}
+			if (.@action$ == "save") {
+				ModAutolootRate[.@slot] = AUTOLOOT_RATE;
+				ModAutolootType[.@slot] = AUTOLOOT_TYPE;
+				deletearray getd("ModAutolootP" + .@slot);
+				.@n = getautolootitems(.@items);
+				if (.@n > 0)
+					copyarray getd("ModAutolootP" + .@slot + "[0]"), .@items[0], .@n;
+			} else if (.@action$ == "load" && ModAutolootName$[.@slot] != "") {
+				callsub S_Rate, ModAutolootRate[.@slot];
+				atcommand "@autoloottype reset";
+				for (.@i = 0; .@i < getarraysize(.types); .@i++)
+					if (ModAutolootType[.@slot] & (1 << .types[.@i]))
+						atcommand "@autoloottype +" + .types[.@i];
+				// One quiet step: @autolootitem would print a line per item.
+				setautolootitems(getd("ModAutolootP" + .@slot));
+				callsub S_Save;
+			} else if (.@action$ == "delete") {
+				ModAutolootName$[.@slot] = "";
+				ModAutolootRate[.@slot] = 0;
+				ModAutolootType[.@slot] = 0;
+				deletearray getd("ModAutolootP" + .@slot);
+			}
+		}
+	} else if (.@action$ == "mob") {
+		.@query$ = "";
+		for (.@i = 2; .@i < .@atcmd_numparameters; .@i++)
+			.@query$ += (.@i > 2 ? " " : "") + .@atcmd_parameters$[.@i];
+		.@mob = atoi(.@query$);
+		if (.@mob <= 0)
+			.@mob = getmonsterinfo(.@query$, MOB_ID);
+		if (.@mob <= 0 || getmonsterinfo(.@mob, MOB_LV) < 0 || !getmobdrops(.@mob) || $@MobDrop_count < 1) {
+			callsub S_Reply, .@request$, "";
+			end;
+		}
+		.@count = $@MobDrop_count;
+		copyarray .@drop[0], $@MobDrop_item[0], .@count;
+		copyarray .@base[0], $@MobDrop_rate[0], .@count;
+		.@line$ = .@mob + "|" + getmonsterinfo(.@mob, MOB_NAME) + "|";
+		for (.@i = 0; .@i < .@count; .@i++)
+			.@line$ += (.@i ? "," : "") + .@drop[.@i] + ":" + .@base[.@i] + ":" + getmobdroprate(.@mob, .@drop[.@i]) + ":" + getiteminfo(.@drop[.@i], ITEMINFO_TYPE);
+		callsub S_Reply, .@request$, .@line$;
+		end;
+	}
+
+	.@n = getautolootitems(.@items);
+	// AUTOLOOT_RATE / AUTOLOOT_TYPE: the fork keeps @autoloot and @autoloottype in them.
+	// 100: the fork's AUTOLOOTITEM_SIZE.
+	.@line$ = AUTOLOOT_RATE + "|" + AUTOLOOT_TYPE + "|100|" + getbattleflag("autoloot_adjust") + "|";
+	for (.@i = 0; .@i < .@n; .@i++)
+		.@line$ += (.@i ? "," : "") + .@items[.@i];
+	.@line$ += "|";
+	for (.@i = 0; .@i < .presets; .@i++)
+		.@line$ += (.@i ? ";" : "") + ModAutolootName$[.@i];
+	callsub S_Reply, .@request$, .@line$;
+	end;
+
+// The rate and types last across logins on their own; the item list is restored
+// here, quietly (@autolootitem would print a line per item).
+OnPCLoginEvent:
+	if (getarraysize(ModAutolootItem) > 0)
+		setautolootitems(ModAutolootItem);
+	end;
+
+// Also catches a list changed by typing @alootid rather than in the window.
+OnPCLogoutEvent:
+	callsub S_Save;
+	end;
+
+// getarg(0): the @autoloot threshold, in 0.01%.
+S_Rate:
+	.@rate = cap_value(getarg(0), 0, 10000);
+	atcommand "@autoloot " + (.@rate / 100) + "." + (.@rate % 100 < 10 ? "0" : "") + (.@rate % 100);
+	return;
+
+// Keep the @autolootitem list on the character.
+S_Save:
+	deletearray ModAutolootItem;
+	.@n = getautolootitems(.@items);
+	if (.@n > 0)
+		copyarray ModAutolootItem[0], .@items[0], .@n;
+	return;
+
+// getarg(0): the request's number; getarg(1): the answer.
+S_Reply:
+	.@request$ = getarg(0);
+	.@line$ = getarg(1);
+	.@len = getstrlen(.@line$);
+	if (.@len == 0) {
+		dispbottom "@@reply " + .@request$ + " 1/1 ";
+		return;
+	}
+	.@parts = (.@len + 199) / 200;
+	for (.@i = 0; .@i < .@parts; .@i++)
+		dispbottom "@@reply " + .@request$ + " " + (.@i + 1) + "/" + .@parts + " " + substr(.@line$, .@i * 200, min(.@len, (.@i + 1) * 200) - 1);
+	return;
+}

@@ -1036,6 +1036,30 @@ impl Installed {
     }
 }
 
+/// The folders whose files reach the game window rather than the server:
+/// assets, client Lua tables, music and a roBrowser plugin.
+const CLIENT_LAYERS: [&str; 4] = ["data", "System", "BGM", "client"];
+
+impl Installed {
+    /// Whether switching this mod or changing its options changes what the
+    /// game window loads, so the game has to be reopened after Apply. A mod
+    /// that only has server layers (db/, npc/, conf/, lua/) takes effect with
+    /// the server restart alone.
+    ///
+    /// Read from the folder, like `grants_commands`, and from both era
+    /// folders: the list is drawn for mods that are off, and switching era is
+    /// one click.
+    pub fn has_client_layers(&self) -> bool {
+        let mut roots = vec![self.dir.clone()];
+        for era in [&self.manifest.renewal_folder, &self.manifest.prerenewal_folder] {
+            if !era.is_empty() {
+                roots.push(self.dir.join(era));
+            }
+        }
+        roots.iter().any(|root| CLIENT_LAYERS.iter().any(|layer| root.join(layer).is_dir()))
+    }
+}
+
 /// Every mod folder, in merge order, with its manifest checked.
 ///
 /// The single place that decides what is applied. `assemble`, `list` and the
@@ -2558,7 +2582,7 @@ fn load_report(state: &Path) -> BTreeMap<String, Vec<String>> {
     out
 }
 
-pub fn list(cfg: &Config) -> Vec<[String; 13]> {
+pub fn list(cfg: &Config) -> Vec<[String; 14]> {
     let saved = read_settings(&cfg.state).unwrap_or_default();
     let reported = load_report(&cfg.state);
     scan(cfg)
@@ -2609,6 +2633,10 @@ pub fn list(cfg: &Config) -> Vec<[String; 13]> {
                 // `skin`, `cursor` or empty. Last, like every addition, so an
                 // older shell reads the columns it knows.
                 m.manifest.kind.clone(),
+                // `client` when the mod has layers the game window loads, so
+                // Settings asks for the game to be reopened only after an
+                // Apply that changed one of those.
+                if m.has_client_layers() { "client" } else { "" }.to_string(),
             ]
         })
         .collect()
@@ -3900,5 +3928,26 @@ mod tests {
         assert_eq!(kind("skin-a"), "skin");
         assert_eq!(kind("cursor-red"), "cursor");
         assert_eq!(kind("plain"), "");
+    }
+
+    /// Settings asks for the game to be reopened only when an applied change
+    /// touched a mod with client layers, so a server-only mod must not claim
+    /// one and a client one must not be missed -- including one whose client
+    /// files are only in an era folder.
+    #[test]
+    fn client_layers_are_reported_for_the_game_window_only() {
+        let mk = |name: &str, folders: &[&str], manifest: Manifest| {
+            let d = tmp(name);
+            for f in folders {
+                fs::create_dir_all(d.join(f)).unwrap();
+            }
+            Installed { name: name.into(), dir: d, status: Status::Off, manifest, bundled: false, roots: Vec::new() }
+        };
+        assert!(!mk("client-server-only", &["db", "npc", "conf", "lua"], Manifest::default()).has_client_layers());
+        for layer in CLIENT_LAYERS {
+            assert!(mk(&format!("client-{layer}"), &[layer], Manifest::default()).has_client_layers(), "{layer}");
+        }
+        let era = Manifest { prerenewal_folder: "pre-renewal".into(), ..Manifest::default() };
+        assert!(mk("client-era", &["npc", "pre-renewal/data"], era).has_client_layers());
     }
 }

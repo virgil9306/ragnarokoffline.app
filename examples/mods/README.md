@@ -32,6 +32,7 @@ noticing: a `data/`-only mod has no empty `npc/` folder for symmetry.
 | [settings-window](settings-window) | `npc/` | A settings window of the mod's own: grouped options, one switch for a group, and its own Apply. |
 | [blaze-shield-lua](blaze-shield-lua) | `lua/` | A skill that behaves differently on hit — drain cards and Hylozoist Card on Blaze Shield — with no change to the server. |
 | [pregame-stage](pregame-stage) | `client/` | Login, character select and creation drawn by the mod: a painted scene, a portrait slot list and the character on a stage. |
+| [host-local-ai](host-local-ai) | `client/` `host/` | A host route: the host's local AI model, asked from a window in game by the host and invited friends. Unit-tested, not yet run in game. |
 
 One folder here is **not** a mod:
 

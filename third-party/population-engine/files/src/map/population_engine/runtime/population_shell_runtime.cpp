@@ -999,7 +999,7 @@ bool population_shell_try_attack(map_session_data *sd, uint32 target_id, uint16 
 			return false;
 		}
 		int sp_cost = skill_get_sp(skill_id, skill_lv);
-		if (sp_cost > sd->status.sp) {
+		if (sp_cost > sd->battle_status.sp) {
 			pe.attack_fail_count++;
 			return false;
 		}
@@ -1250,7 +1250,7 @@ bool population_shell_try_arena_attack(map_session_data *sd, uint32 target_id, u
 			return false;
 		}
 		int sp_cost = skill_get_sp(skill_id, skill_lv);
-		if (sp_cost > sd->status.sp) {
+		if (sp_cost > sd->battle_status.sp) {
 			pe.attack_fail_count++;
 			return false;
 		}

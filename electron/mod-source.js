@@ -397,11 +397,34 @@ async function checkUpdates(installed, listing, options = {}) {
 	return out;
 }
 
+/**
+ * Whether each mod installed from the mod list itself (a reviewed folder in
+ * the app's repository, not a release) has a newer version there. No lookup:
+ * the listing already carries every entry's version. `installed` is
+ * `[{ name, version }]` for the installed mods that have no source record;
+ * an entry that is not in the listing, or is a source entry now, is not an
+ * update. One that needs a newer app than `appVersion` is reported but not
+ * offered: installing it would only leave a mod the app refuses to load.
+ */
+function registryUpdates(installed, listing, { appVersion } = {}) {
+	const out = [];
+	for (const mod of installed) {
+		const entry = listing.find(m => m.name === mod.name);
+		if (!entry || entry.source || !entry.version) continue;
+		const needs = appRequirement(entry.requires && entry.requires.app, appVersion);
+		const newer = isNewer(entry.version, mod.version);
+		const result = { name: mod.name, listed: true, registry: true, installed: mod.version || '', latest: entry.version, update: newer && !needs };
+		if (newer && needs) result.needsApp = needs;
+		out.push(result);
+	}
+	return out;
+}
+
 const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 
 module.exports = {
 	readSource, globToRegExp, get, latestRelease, pickAsset, download, stage, commit, discard,
-	readRecord, checkUpdates, appRequirement, compareVersions, isNewer, contents, sha256,
+	readRecord, checkUpdates, registryUpdates, appRequirement, compareVersions, isNewer, contents, sha256,
 	RateLimited, GITHUB_API, ASSET_LIMIT, UNPACKED_LIMIT, MAX_FILES, CACHE_MS, RECORD, onlyGitHub,
 	githubPage,
 };

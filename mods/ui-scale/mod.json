@@ -1,0 +1,8 @@
+{
+  "name": "ui-scale",
+  "version": "1.0.0",
+  "author": "Ragnarok Offline",
+  "description": "Draw the game's windows larger or smaller: all of them at once, and each on its own -- a hotbar you can read from the couch, a smaller chat. Opened from the UI Scale button in the option menu (Escape). Also the worked example of api.ui.scale and api.ui.menuButton.",
+  "default": "off",
+  "requires": { "app": ">=1.4.0", "era": "any" }
+}

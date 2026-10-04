@@ -1,0 +1,73 @@
+{
+  "name": "card-remover",
+  "version": "1.0.0",
+  "author": "BlaXun",
+  "description": "A Card Remover in Prontera, Geffen, Alberta, Morroc, Payon, Izlude and Al De Baran takes one card out of the equipment you are wearing -- the item and the card both survive. He is paid in cards, not zeny: every card is worth points by its tier, and the cost depends on the tier of the card you free. Pick the card and your payment in his window.",
+  "requires": {
+    "app": ">=1.4.8",
+    "era": "any"
+  },
+  "tags": [
+    "cards",
+    "npc",
+    "equipment",
+    "quality-of-life"
+  ],
+  "homepage": "https://github.com/Flux159/ragnarokoffline.app/tree/main/registry/mods/card-remover",
+  "settings": [
+    {
+      "key": "points_normal",
+      "type": "number",
+      "default": 1,
+      "min": 1,
+      "max": 1000,
+      "label": "Points a normal card pays",
+      "description": "What one card from an ordinary monster is worth as payment. Takes effect when the server restarts."
+    },
+    {
+      "key": "points_miniboss",
+      "type": "number",
+      "default": 5,
+      "min": 1,
+      "max": 1000,
+      "label": "Points a miniboss card pays",
+      "description": "What one card from a miniboss (a Boss-class monster that is not an MVP) is worth as payment."
+    },
+    {
+      "key": "points_mvp",
+      "type": "number",
+      "default": 15,
+      "min": 1,
+      "max": 1000,
+      "label": "Points an MVP card pays",
+      "description": "What one MVP card is worth as payment."
+    },
+    {
+      "key": "cost_normal",
+      "type": "number",
+      "default": 3,
+      "min": 1,
+      "max": 1000,
+      "label": "Points to remove a normal card",
+      "description": "The price of taking one normal card out of your equipment."
+    },
+    {
+      "key": "cost_miniboss",
+      "type": "number",
+      "default": 10,
+      "min": 1,
+      "max": 1000,
+      "label": "Points to remove a miniboss card",
+      "description": "The price of taking one miniboss card out of your equipment."
+    },
+    {
+      "key": "cost_mvp",
+      "type": "number",
+      "default": 20,
+      "min": 1,
+      "max": 1000,
+      "label": "Points to remove an MVP card",
+      "description": "The price of taking one MVP card out of your equipment."
+    }
+  ]
+}

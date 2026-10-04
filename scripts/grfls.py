@@ -27,13 +27,23 @@ def read_table(path):
     """Return {lowercased path: uncompressed size} for a GRF's file table."""
     with open(path, "rb") as f:
         header = f.read(46)
-        if header[:15] != b"Master of Magic":
+        # "Event Horizon" is GRF Editor's signature for the same layout, NUL-terminated
+        # with other bytes after it (iRO's 2026 data.grf). Accepted as the asset server's
+        # src/grf.rs does.
+        if header[:15].split(b"\0")[0] not in (b"Master of Magic", b"Event Horizon"):
             raise ValueError(f"{path}: not a GRF (bad signature)")
-        table_offset, seed, count, version = struct.unpack("<IIII", header[30:46])
+        low, high, count, version = struct.unpack("<IIII", header[30:46])
         if version not in (0x200, 0x300):
             raise ValueError(f"{path}: GRF version {version:#x} unsupported "
-                             "(RemoteClient-JS needs 0x200 or 0x300, undecrypted)")
-        f.seek(table_offset + 46)
+                             "(the asset server reads 0x200 or 0x300, undecrypted)")
+        # A 0x300 archive written with the 0x200 layout has a high word that cannot
+        # be one (GRF Editor's heuristic, as the asset server applies it).
+        if version == 0x300 and high >> 8:
+            version = 0x200
+        # 0x300: a 64-bit table offset, then 4 bytes before the table; 8-byte entry offsets.
+        table_at = low + 46 if version == 0x200 else (high << 32) + low + 46 + 4
+        tail = 17 if version == 0x200 else 21
+        f.seek(table_at)
         packed, unpacked = struct.unpack("<II", f.read(8))
         table = zlib.decompress(f.read(packed))
     if len(table) != unpacked:
@@ -44,9 +54,9 @@ def read_table(path):
         end = table.index(b"\0", i)
         name = table[i:end]
         i = end + 1
-        # 17-byte entry: packed size, aligned size, real size, flags, offset
-        _, _, real_size, _, _ = struct.unpack("<IIIBI", table[i:i + 17])
-        i += 17
+        # packed size, aligned size, real size, flags, then the offset (4 bytes, or 8 in 0x300)
+        _, _, real_size, _ = struct.unpack("<IIIB", table[i:i + 13])
+        i += tail
         key = name.decode("cp949", "replace").replace("\\", "/").lower()
         entries[key] = real_size
     return entries, version

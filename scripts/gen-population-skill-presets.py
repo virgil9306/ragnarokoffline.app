@@ -205,6 +205,9 @@ SKIP = re.compile(
     r"|MC_|BS_GREED|BS_HILTBINDING|BS_FINDINGORE|BS_REPAIRWEAPON"
     r"|RG_PLAGIARISM|RG_COMPULSION|SC_|PF_|SA_ABRACADABRA|SA_COMA|SA_ELEMENTWATER|SA_CREATECON"
     r"|HP_MANARECHARGE|HP_MEDITATIO|HP_BASILICA|HP_ASSUMPTIO"
+    r"|BD_ENCORE"  # renewal: recasts the last song, which Dissonance resets; the song rows recast instead
+    r"|WM_DEADHILLHERE"  # revives a dead party member only; the engine casts it, like ALL_RESURRECTION
+    r"|AL_WARP"  # opens a destination menu on the caster's own client; a companion has none, so no portal
     r"|HT_MAKINGARROW|AC_MAKINGARROW|HT_TALKIEBOX|HT_REMOVETRAP|HT_SPRINGTRAP|HT_PHANTASMIC"
     r"|TF_STEAL|TF_PICKSTONE|TF_THROWSTONE|TF_SPRINKLESAND"
     r"|WS_CARTBOOST|BS_ADRENALINE2|NC_|GN_|KO_|OB_|RL_|NJ_|TK_|SG_|SO_EL_|SO_SPELLFISH|SO_ELEMENTAL_SHIELD)"
@@ -214,10 +217,10 @@ SKIP = re.compile(
 # gate must be "the ally HAS this status" (one row per status, and the status list lives in the
 # skill's impl - `status_change_end` - which no YAML field carries), where the branch's generic
 # "ally is hurt" gate fires on a healthy ally and wastes the cast. Everything else that lands in
-# that branch (AM_BERSERKPITCHER, SR_POWERVELOCITY, MO_KITRANSLATION, MO_ABSORBSPIRITS,
-# WM_DEADHILLHERE) keeps the branch's shape, which is what the 4th jobs already ship - Biolo has an
-# AM_BERSERKPITCHER row and Troubadour/Trouvere have WM_DEADHILLHERE, so excluding them for the
-# 2nd/3rd jobs would make this file inconsistent with its own settled policy.
+# that branch (AM_BERSERKPITCHER, SR_POWERVELOCITY, MO_KITRANSLATION, MO_ABSORBSPIRITS) keeps the
+# branch's shape, which is what the 4th jobs already ship - Biolo has an AM_BERSERKPITCHER row, so
+# excluding them for the 2nd/3rd jobs would make this file inconsistent with its own settled policy.
+# WM_DEADHILLHERE is in SKIP instead: it only revives, so the engine casts it on a dead party member.
 HAND_WRITTEN = {
     "AL_CURE": "cure: needs Condition: ally_status per status, from cure.cpp",
     "TF_DETOXIFY": "cure: needs Condition: ally_status per status, from detoxify.cpp",

@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000023
+Subject: [PATCH] @companion draft takes an optional sex: m|f|male|female
+
+The Companions panel's Summon tab offers Male / Female / Random. The sex is the
+first or the last word after the job, so a name can still have spaces. A job that
+is only ever one sex (Bard, Dancer, Kagerou...) keeps it, and the reply says so.
+
+--- a/src/custom/atcommand.inc
++++ b/src/custom/atcommand.inc
+@@ -467,21 +467,58 @@
+ 		return 0;
+ 	}
+ 	// RAGNAROKMAC (Phase 3): create a companion of a chosen job on the spot.
+-	// Usage: @companion draft <job name|id> [name]
++	// Usage: @companion draft <job name|id> [name] [m|f]
+ 	// Unlike summon (which revives a previously recruited companion), this writes
+ 	// a new persistence row, so a player can build a party around roles instead
+ 	// of hunting the world for a matching ambient character.
+ 	if (strcmpi(cmd, "draft") == 0 || strcmpi(cmd, "create") == 0) {
+ 		if (!param[0]) {
+-			clif_displaymessage(fd, "Usage: @companion draft <job name or id> [name]");
++			clif_displaymessage(fd, "Usage: @companion draft <job name or id> [name] [m|f]");
+ 			return -1;
+ 		}
+-		char jobtok[32] = {0}, nametok[NAME_LENGTH] = {0};
+-		const int parsed = sscanf(param, "%31s %23[^\n]", jobtok, nametok);
++		char jobtok[32] = {0}, nametok[NAME_LENGTH] = {0}, resttok[64] = {0};
++		const int parsed = sscanf(param, "%31s %63[^\n]", jobtok, resttok);
+ 		if (parsed < 1) {
+-			clif_displaymessage(fd, "Usage: @companion draft <job name or id> [name]");
++			clif_displaymessage(fd, "Usage: @companion draft <job name or id> [name] [m|f]");
+ 			return -1;
+ 		}
++		// RAGNAROKMAC: an optional sex, m|f|male|female, as the first or the last word
++		// after the job. What is left is the name, so "Knight f Aria" and "Knight Aria f"
++		// both draft a female knight called Aria.
++		char want_sex = '\0';
++		if (parsed >= 2) {
++			auto sex_word = [](const char *w, size_t n) -> char {
++				char word[8] = {0};
++				if (n == 0 || n >= sizeof(word))
++					return '\0';
++				memcpy(word, w, n);
++				if (strcmpi(word, "m") == 0 || strcmpi(word, "male") == 0)
++					return 'M';
++				if (strcmpi(word, "f") == 0 || strcmpi(word, "female") == 0)
++					return 'F';
++				return '\0';
++			};
++			size_t len = strlen(resttok);
++			while (len > 0 && ISSPACE(resttok[len - 1]))
++				resttok[--len] = '\0';
++			char *name = resttok;
++			char *first_end = resttok;
++			while (*first_end && !ISSPACE(*first_end))
++				++first_end;
++			char *last = resttok + len;
++			while (last > resttok && !ISSPACE(last[-1]))
++				--last;
++			if ((want_sex = sex_word(resttok, first_end - resttok)) != '\0') {
++				name = first_end;
++				while (*name && ISSPACE(*name))
++					++name;
++			} else if ((want_sex = sex_word(last, resttok + len - last)) != '\0') {
++				*last = '\0';
++				for (size_t n = strlen(resttok); n > 0 && ISSPACE(resttok[n - 1]); --n)
++					resttok[n - 1] = '\0';
++			}
++			safestrncpy(nametok, name, NAME_LENGTH);
++		}
+ 		uint16_t job_id = 0;
+ 		if (sscanf(jobtok, "%hu", &job_id) != 1 || job_id == 0) {
+ 			// Name form: resolve through the engine's own job-name table, so the
+@@ -512,11 +549,17 @@
+ 		// RAGNAROKMAC: through the hiring rules (Settings -> Population ->
+ 		// Companions): free choice, or the player's tier and level for a fee.
+ 		std::string why;
+-		const uint32_t made = population_engine_companion_hire(sd, job_id, chosen[0] ? chosen : nullptr, false, why);
+-		char msg[160];
++		const uint32_t made = population_engine_companion_hire(sd, job_id, chosen[0] ? chosen : nullptr, false, why, want_sex);
++		// A job that is only ever one sex keeps it; say so rather than quietly ignore the ask.
++		const char own_sex = population_engine_job_required_sex(job_id);
++		char sex_note[64] = {0};
++		if (made != 0 && want_sex != '\0' && own_sex != '\0' && own_sex != want_sex)
++			snprintf(sex_note, sizeof(sex_note), " A %s is always %s.",
++				job_name(job_id), own_sex == 'M' ? "male" : "female");
++		char msg[256];
+ 		if (made != 0)
+-			snprintf(msg, sizeof(msg), "Drafted a %s companion. It is in your party now.%s%s",
+-				job_name(job_id), population_engine_companion_hire_mode() != 0 ? " " : "",
++			snprintf(msg, sizeof(msg), "Drafted a %s companion. It is in your party now.%s%s%s",
++				job_name(job_id), sex_note, population_engine_companion_hire_mode() != 0 ? " " : "",
+ 				population_engine_companion_hire_mode() != 0 ? why.c_str() : "");
+ 		else
+ 			snprintf(msg, sizeof(msg), "%s", why.c_str());
+@@ -680,7 +723,7 @@
+ 		clif_displaymessage(fd, reply[0] ? reply : "Could not set that companion's homunculus.");
+ 		return 0;
+ 	}
+-	clif_displaymessage(fd, "Usage: @companion list | summon <name> | draft <job> [name] | jobs | skills <name> [list|none|auto] | favorite <name> | remove <name> | dismiss <name> | gear <name> [slots] | heal <a%> <b%> | homunculus <name> [on|off]");
++	clif_displaymessage(fd, "Usage: @companion list | summon <name> | draft <job> [name] [m|f] | jobs | skills <name> [list|none|auto] | favorite <name> | remove <name> | dismiss <name> | gear <name> [slots] | heal <a%> <b%> | homunculus <name> [on|off]");
+ 	return -1;
+ }
+ 

@@ -13,7 +13,11 @@
 # the mod's own: they never count against the engine's MaxVendors for that map,
 # and the engine's vendors keep spawning exactly as they would without the mod.
 # Each block is either fixed seats (one shell per position; an occupied seat
-# stays empty until it is free) or Count shells anywhere in Areas. Counts are
+# stays empty until it is free) or Count shells anywhere in Areas, never within
+# min_npc_vendchat_distance (3 cells) of an NPC. Fill: Lanes fills the Areas one
+# at a time in the order listed, each shell near another, instead of spreading
+# them at random (Fill: Random, the default); LaneFillPct: [70, 80] moves on to
+# the next area once one holds that share of its cells. Counts are
 # exact unless ScaleWithDensity: true. The shells' look comes from a
 # PlacementBound profile in population_vendor_pop.yml with the same VendorKey.
 # See the shipped db/population_vendors.yml for the stock fields.
@@ -27,6 +31,11 @@ Header:
 #    Type: Pool
 #    Pool:
 #      - { Item: Red_Potion, Amount: 100, Price: 50 }
+#    TitleFromPool:          # signs that fit any pick
+#      - "potions here"
+#    StockTitles:            # signs only shown when the stall's pick bears them out
+#      - { Title: "S> red pots", Needs: [Red_Potion] }
+#      - { Title: "S> {item} {price}" }   # filled from a line it carries
 #    Spawns:
 #      - Map: prontera
 #        Positions:

@@ -11,6 +11,7 @@
 #include <string>
 #include <tuple>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <common/cbasetypes.hpp>
@@ -241,6 +242,10 @@ struct s_population {
 	/// @companion gear, and only these are kept or handed back across a job advance. Persisted
 	/// as cp_companion_persistence.given_mask so it survives a restart.
 	uint32_t companion_given_mask = 0;
+	/// RAGNAROKMAC (gear custody): the companion's inventory (nameid, amount per index) just before
+	/// a trade's items move, so population_engine_companion_equip_traded acts only on what the trade
+	/// brought in. Empty outside a trade.
+	std::vector<std::pair<uint32_t, int32_t>> companion_trade_before;
 	t_tick companion_follow_next = 0; ///< Rate limit for owner-follow movement decisions.
 	bool companion_formation_active = false; ///< True while walking to the shell's assigned idle formation cell.
 	int16_t companion_formation_x = 0; ///< Current formation walk destination.
