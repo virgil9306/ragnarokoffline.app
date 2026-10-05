@@ -234,7 +234,9 @@
         "quality-of-life"
       ],
       "icon": "",
-      "screenshots": [],
+      "screenshots": [
+        "images/cash-shop.png"
+      ],
       "requires": {
         "mods": [],
         "era": "",
@@ -244,7 +246,12 @@
         "github": "LilArt420/cashshopmod",
         "asset": "cash-shop-extended-*.zip"
       },
-      "files": []
+      "files": [
+        {
+          "path": "images/cash-shop.png",
+          "sha256": "59312e6a6cb77b303652bf51279aaa6e2992c43c90c59d4f3ec79fe6b39bc510"
+        }
+      ]
     },
     {
       "name": "exp-card",
