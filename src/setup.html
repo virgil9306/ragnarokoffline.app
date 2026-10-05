@@ -228,14 +228,23 @@ for (const t of document.querySelectorAll('.tab')) {
 }
 $('join_host').oninput = render;
 
+// A folder is a whole client, so it replaces every file the last one set,
+// including the ones it lacks. Switching from kRO (data, rdata, an overlay) to
+// iRO (data and event.grf) kept kRO's rdata.grf, and the two clients' files
+// were served together (#392). A folder with no game files at all is a wrong
+// pick, not a client, and changes nothing.
+function takeFolder(paths, found) {
+  const n = KEYS.filter(k => found[k]).length;
+  if (n === 0) return 0;
+  for (const k of KEYS) paths[k] = found[k] || '';
+  return n;
+}
+
 $('pick-folder').onclick = async () => {
   const dir = await open({ multiple: false, directory: true });
   if (typeof dir !== 'string') return;
   const found = await invoke('scan_client_dir', { dir });
-  let n = 0;
-  for (const k of KEYS) {
-    if (found[k]) { paths[k] = found[k]; n++; }
-  }
+  const n = takeFolder(paths, found);
   $('p-folder').textContent = dir;
   $('p-folder').classList.add('set');
   // Say what was and was not found: the English overlay is a separate download,

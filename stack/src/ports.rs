@@ -1,7 +1,9 @@
 //! The host ports a world listens on, and the one place they can be changed.
 //!
-//! Every install uses the same five: 3338 for the asset server, 6900/6121/5121
-//! for rAthena's login, char and map servers, and 7490 for the AI agent's API.
+//! Every install uses the same six: 3338 for the asset server, 6900/6121/5121
+//! for rAthena's login, char and map servers, 8888 for rAthena's web server
+//! (guild emblems, reached only through the asset server), and 7490 for the AI
+//! agent's API.
 //! That is what the app has always done, and with no override set nothing here
 //! changes it.
 //!
@@ -15,6 +17,7 @@
 //! | `RAGNAROK_OFFLINE_LOGIN_PORT`    | 6900    | rAthena login                 |
 //! | `RAGNAROK_OFFLINE_CHAR_PORT`     | 6121    | rAthena char                  |
 //! | `RAGNAROK_OFFLINE_MAP_PORT`      | 5121    | rAthena map                   |
+//! | `RAGNAROK_OFFLINE_WEB_PORT`      | 8888    | rAthena web (guild emblems)   |
 //! | `RAGNAROK_OFFLINE_AGENT_PORT`    | 7490    | the shell's AI agent API      |
 //!
 //! The supervisor is the only thing that parses them. The shell and the test
@@ -28,11 +31,12 @@
 //! client to 6121 -- the other app's char server. So the servers listen on the
 //! configured port inside their containers and it is published one to one.
 
-pub const VARS: [(&str, &str); 5] = [
+pub const VARS: [(&str, &str); 6] = [
     ("asset", "RAGNAROK_OFFLINE_ASSET_PORT"),
     ("login", "RAGNAROK_OFFLINE_LOGIN_PORT"),
     ("char", "RAGNAROK_OFFLINE_CHAR_PORT"),
     ("map", "RAGNAROK_OFFLINE_MAP_PORT"),
+    ("web", "RAGNAROK_OFFLINE_WEB_PORT"),
     ("agent", "RAGNAROK_OFFLINE_AGENT_PORT"),
 ];
 
@@ -42,11 +46,12 @@ pub struct Ports {
     pub login: u16,
     pub char: u16,
     pub map: u16,
+    pub web: u16,
     pub agent: u16,
 }
 
 impl Ports {
-    pub const DEFAULT: Ports = Ports { asset: 3338, login: 6900, char: 6121, map: 5121, agent: 7490 };
+    pub const DEFAULT: Ports = Ports { asset: 3338, login: 6900, char: 6121, map: 5121, web: 8888, agent: 7490 };
 
     /// From the process environment.
     pub fn from_env() -> Result<Ports, String> {
@@ -58,7 +63,7 @@ impl Ports {
     ///
     /// An unset or empty variable keeps the default. Anything else must be a
     /// whole number from 1024 to 65535 -- below that is a privileged port on
-    /// macOS and Linux, and the servers do not run as root -- and the five
+    /// macOS and Linux, and the servers do not run as root -- and the six
     /// must all differ, since two listeners cannot share one.
     pub fn parse(get: impl Fn(&str) -> Option<String>) -> Result<Ports, String> {
         let mut p = Ports::DEFAULT;
@@ -97,15 +102,16 @@ impl Ports {
             "login" => &mut self.login,
             "char" => &mut self.char,
             "map" => &mut self.map,
+            "web" => &mut self.web,
             _ => &mut self.agent,
         }
     }
 
-    fn named(&self) -> [(&'static str, u16); 5] {
-        [("asset", self.asset), ("login", self.login), ("char", self.char), ("map", self.map), ("agent", self.agent)]
+    fn named(&self) -> [(&'static str, u16); 6] {
+        [("asset", self.asset), ("login", self.login), ("char", self.char), ("map", self.map), ("web", self.web), ("agent", self.agent)]
     }
 
-    /// `{"asset":3338,"login":6900,"char":6121,"map":5121,"agent":7490}`
+    /// `{"asset":3338,"login":6900,"char":6121,"map":5121,"web":8888,"agent":7490}`
     pub fn to_json(&self) -> String {
         let body: Vec<String> = self.named().iter().map(|(k, v)| format!("\"{k}\":{v}")).collect();
         format!("{{{}}}", body.join(","))
@@ -127,6 +133,11 @@ impl Ports {
     pub fn map_conf(&self) -> String {
         format!("char_port: {}\nmap_port: {}\n", self.char, self.map)
     }
+    /// web_athena.conf `web_port`. The web server reaches the database, not
+    /// another server, so it needs only its own.
+    pub fn web_conf(&self) -> String {
+        format!("web_port: {}\n", self.web)
+    }
 }
 
 fn var_for(key: &str) -> &'static str {
@@ -147,8 +158,8 @@ mod tests {
     fn nothing_set_is_exactly_the_ports_the_app_has_always_used() {
         let p = Ports::parse(env(&[])).unwrap();
         assert_eq!(p, Ports::DEFAULT);
-        assert_eq!((p.asset, p.login, p.char, p.map, p.agent), (3338, 6900, 6121, 5121, 7490));
-        assert_eq!(p.to_json(), r#"{"asset":3338,"login":6900,"char":6121,"map":5121,"agent":7490}"#);
+        assert_eq!((p.asset, p.login, p.char, p.map, p.web, p.agent), (3338, 6900, 6121, 5121, 8888, 7490));
+        assert_eq!(p.to_json(), r#"{"asset":3338,"login":6900,"char":6121,"map":5121,"web":8888,"agent":7490}"#);
         // Empty is unset, so `VAR= command` does not become an error.
         assert_eq!(Ports::parse(env(&[("RAGNAROK_OFFLINE_MAP_PORT", "  ")])).unwrap(), Ports::DEFAULT);
     }
@@ -162,7 +173,7 @@ mod tests {
             ("RAGNAROK_OFFLINE_MAP_PORT", "15121"),
         ]))
         .unwrap();
-        assert_eq!(p, Ports { asset: 13338, login: 16900, char: 16121, map: 15121, agent: 7490 });
+        assert_eq!(p, Ports { asset: 13338, login: 16900, char: 16121, map: 15121, web: 8888, agent: 7490 });
         let only_map = Ports::parse(env(&[("RAGNAROK_OFFLINE_MAP_PORT", "15121")])).unwrap();
         assert_eq!(only_map, Ports { map: 15121, ..Ports::DEFAULT });
     }
@@ -193,10 +204,11 @@ mod tests {
 
     #[test]
     fn each_server_is_told_its_own_port_and_its_peer_s() {
-        let p = Ports { asset: 13338, login: 16900, char: 16121, map: 15121, agent: 17490 };
+        let p = Ports { asset: 13338, login: 16900, char: 16121, map: 15121, web: 18888, agent: 17490 };
         assert_eq!(p.login_conf(), "login_port: 16900\n");
         assert_eq!(p.char_conf(), "login_port: 16900\nchar_port: 16121\n");
         assert_eq!(p.map_conf(), "char_port: 16121\nmap_port: 15121\n");
+        assert_eq!(p.web_conf(), "web_port: 18888\n");
         // And the defaults are rAthena's own, so writing them changes nothing.
         let d = Ports::DEFAULT;
         assert_eq!(d.char_conf(), "login_port: 6900\nchar_port: 6121\n");

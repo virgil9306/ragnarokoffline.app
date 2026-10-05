@@ -1,0 +1,16 @@
+{
+  "name": "waypoint-system",
+  "version": "1.0.0",
+  "author": "BlaXun",
+  "description": "Travel you earn instead of a free warper. Waypoint boards stand on 41 fields and dungeon floors, low to high level. Bring a board the items its monsters drop and it attunes to you; from then on a Waypoint Keeper in any town sends you there for a fee, and the board sends you back. Both eras. Every waypoint, with its board position, the items it asks for and its travel fee per era, is one row of registry/tools/waypoint-system/waypoints.csv in the app repository, built into this mod's scripts; the README says how to add one.",
+  "default": "off",
+  "requires": { "app": ">=1.4.3", "era": "any" },
+  "tags": ["travel", "warper", "waypoints", "exploration", "npc"],
+  "prerenewalFolder": "pre-re",
+  "settings": [
+    { "key": "account_wide", "type": "boolean", "default": false, "label": "Waypoints are shared by the whole account", "description": "Off: each character attunes to waypoints on its own. On: a waypoint any of your characters attuned to works for all of them. Both are always saved, so switching back and forth loses nothing." },
+    { "key": "fee_percent", "type": "number", "default": 100, "min": 0, "max": 500, "label": "Travel fee (%)", "description": "Every Waypoint Keeper fee, as a percentage of the waypoint's own fee: 100 as listed, 50 half, 0 free once attuned. The fees themselves are set per waypoint in the mod's source (registry/tools/waypoint-system/waypoints.csv)." },
+    { "key": "unlock_percent", "type": "number", "default": 100, "min": 25, "max": 400, "label": "Items to attune (%)", "description": "How many items each board asks for, as a percentage: 100 as listed, 50 half, 200 twice as many. Never less than one of each. The items themselves are set per waypoint in the mod's source (registry/tools/waypoint-system/waypoints.csv)." },
+    { "key": "show_discovered", "type": "boolean", "default": true, "label": "Keepers list boards you have found", "description": "On: a Waypoint Keeper also lists boards you have visited but not attuned to yet, marked (not attuned), as a reminder. Off: only attuned waypoints are listed." }
+  ]
+}

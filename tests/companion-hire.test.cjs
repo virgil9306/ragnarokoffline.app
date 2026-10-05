@@ -28,7 +28,7 @@ test('a hired companion is the owner\'s tier and level, and is paid for only onc
 	const hire = engine.slice(engine.indexOf('uint32_t population_engine_companion_hire('), engine.indexOf('void population_engine_companion_terms('));
 	assert.match(hire, /if \(mode == 2 && !from_npc\)/, 'recruiter mode refuses the panel');
 	assert.match(hire, /pop_hire_allowed\(owner, job_id, msg\)/, 'tier and fee are checked before drafting');
-	const draft = hire.indexOf('population_engine_companion_draft(owner, job_id, 1, name_hint);\n\tg_pop_draft_level = 0;');
+	const draft = hire.indexOf('population_engine_companion_draft(owner, job_id, 1, name_hint, sex);\n\tg_pop_draft_level = 0;');
 	assert.ok(draft > 0, 'the draft runs at the owner\'s level, and the override is cleared at once');
 	assert.ok(hire.indexOf('pc_payzeny(') > draft && hire.indexOf('pc_delitem(') > draft, 'paid only after a successful draft');
 	assert.match(engine, /if \(g_pop_draft_level > 0\)\n\t\t\trolled = /, 'spawn_shell takes the owner\'s level, within the profile band');

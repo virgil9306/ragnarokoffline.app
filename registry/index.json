@@ -28,6 +28,43 @@
       "files": []
     },
     {
+      "name": "autoloot",
+      "version": "1.0.0",
+      "author": "BlaXun",
+      "description": "An Autoloot window in game: loot every drop at or below a rarity you choose, whole item types such as cards, and a list of exact items -- with a monster check that shows what you would pick up. Works even where @autoloot is kept for GMs, and your item list is kept across logins.",
+      "homepage": "https://github.com/Flux159/ragnarokoffline.app/tree/main/registry/mods/autoloot",
+      "tags": [
+        "drops",
+        "loot",
+        "quality-of-life"
+      ],
+      "icon": "",
+      "screenshots": [],
+      "requires": {
+        "mods": [],
+        "era": "any",
+        "app": ">=1.4.8"
+      },
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "f64b046033070073fb4d9ef8e12fe8a4e76e7fdb27834518f4f9e413c7d3fffa"
+        },
+        {
+          "path": "client/index.js",
+          "sha256": "0b824bfde3bd66d0472f50f0715e6226b020f025593bb31d13d7e914893fc9b4"
+        },
+        {
+          "path": "mod.json",
+          "sha256": "99d831b471098d1e110120d4698589960c9be8b2d46d7e0731a056103589cad5"
+        },
+        {
+          "path": "npc/autoloot.txt",
+          "sha256": "ca6a6ec16475f0a6410b997078179e3c859fbdd704af3ca873176f108d1e1603"
+        }
+      ]
+    },
+    {
       "name": "blaze-shield",
       "version": "1.0.0",
       "author": "BlaXun, Ragnarok Offline",
@@ -137,6 +174,77 @@
           "sha256": "018afb13dc418b9a30afbf733d4b8caa809421c4a2eb0d053cb947f4b00e10ef"
         }
       ]
+    },
+    {
+      "name": "card-remover",
+      "version": "1.0.0",
+      "author": "BlaXun",
+      "description": "A Card Remover in Prontera, Geffen, Alberta, Morroc, Payon, Izlude and Al De Baran takes one card out of the equipment you are wearing -- the item and the card both survive. He is paid in cards, not zeny: every card is worth points by its tier, and the cost depends on the tier of the card you free. Pick the card and your payment in his window.",
+      "homepage": "https://github.com/Flux159/ragnarokoffline.app/tree/main/registry/mods/card-remover",
+      "tags": [
+        "cards",
+        "equipment",
+        "npc",
+        "quality-of-life"
+      ],
+      "icon": "",
+      "screenshots": [],
+      "requires": {
+        "mods": [],
+        "era": "any",
+        "app": ">=1.4.8"
+      },
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "6752389d02d5f8cefb6dd99262339fd7b7e829652351576dfd0386fa048f9c5b"
+        },
+        {
+          "path": "System/jobname.lub",
+          "sha256": "69bc24fecf683920b3cd7dc47e66e541aaac1a31ff0b7687c13fecabacff7043"
+        },
+        {
+          "path": "client/index.js",
+          "sha256": "e954f09cf861826021c51eae98d2a70b623c3d341456d713948d8429fa3c7c44"
+        },
+        {
+          "path": "mod.json",
+          "sha256": "24a7d37523fbc598ea4f27d54916d7ae248a8390a745be7710491e7c81cadee2"
+        },
+        {
+          "path": "npc/card_remover.txt",
+          "sha256": "2af3527d53fcd60a3b8195a22b3e352450f2d2c544911054952b4945718f6062"
+        },
+        {
+          "path": "npc/card_tiers.txt",
+          "sha256": "0c28dedaef78ca51c35fd173fa8b2fd8864bccf2fdc9082f25186b96a20e883d"
+        }
+      ]
+    },
+    {
+      "name": "cash-shop-extended",
+      "version": "",
+      "author": "Lil Art",
+      "description": "Fills the Cash Shop with scrolls, boxes and convenience items, and earns Cash Points as you play: for time online, for monster kills, and from a Cash Point Seller in Prontera who takes zeny. Also adds a Gacha Machine that pays out a random Cash Shop item, and a status NPC showing your progress. Renewal only.",
+      "homepage": "https://github.com/LilArt420/cashshopmod",
+      "tags": [
+        "cash-shop",
+        "gacha",
+        "npc",
+        "quality-of-life"
+      ],
+      "icon": "",
+      "screenshots": [],
+      "requires": {
+        "mods": [],
+        "era": "",
+        "app": ""
+      },
+      "source": {
+        "github": "LilArt420/cashshopmod",
+        "asset": "cash-shop-extended-*.zip"
+      },
+      "files": []
     },
     {
       "name": "exp-card",
@@ -286,9 +394,9 @@
     },
     {
       "name": "prontera-vendors",
-      "version": "1.1.0",
+      "version": "1.4.0",
       "author": "BlaXun",
-      "description": "A living player market on Prontera's main road. Fake players run real vending stalls on the inner sidewalks (cards, weapons and armor by class, refined gear, potions, gems, pet eggs, loot from every dungeon and more) and real buying stores on the outer sidewalks that buy your ores, cards, boxes and loot. Prices follow a real server's market (kRO), stalls undercut each other and change as their owners come and go, and everything is tunable in Settings. Needs the population engine switched on.",
+      "description": "A living player market on Prontera's main road. Fake players run real vending stalls on the inner sidewalks (cards, weapons and armor by class, refined gear, potions, gems, pet eggs, loot from every dungeon and more) and real buying stores on the outer sidewalks that buy your loot: ores, quest turn-ins, junk drops and the loot of every dungeon and leveling field. Prices follow a real server's market (kRO), stalls undercut each other and change as their owners come and go, and everything is tunable in Settings. Needs the population engine switched on.",
       "homepage": "",
       "tags": [
         "buying-store",
@@ -310,19 +418,19 @@
       "files": [
         {
           "path": "README.md",
-          "sha256": "48c2f76a22e749d49d56d199d1b478a5d6d8b9b6c2002f9c0fc3308305f354e8"
+          "sha256": "429e23ad61b206e88fd4e7bf4bd60346e2d160f6e9066f40f5e93e801cc9a42e"
         },
         {
           "path": "db/population_vendor_pop.yml",
-          "sha256": "19a85098e167ef933a637a81a04b20250b9dca791e2e42c666ebfa259cf7e031"
+          "sha256": "c5eee64a360dc45b1a4b1e1ba5efcb18f855caf714bbfffedafb9f54789b51fc"
         },
         {
           "path": "db/population_vendor_prices/prontera-vendors.csv",
-          "sha256": "0f0ebc588f375a94f5847c817c3d4086f7f5c9e4d115c85390dc1a80cbc340c3"
+          "sha256": "ac7d7050d938fb0d94d43698319aca7ba3fa21bffbb4e46a4d3700fa72fe9b2d"
         },
         {
           "path": "db/population_vendors.yml",
-          "sha256": "02421e972646a725ed6879bba29b21c71f8a16aa712cda4612b9bf0b435ea308"
+          "sha256": "9d3c9dfcf10dfcc3db8530ef4b61289ae88dcfc4062390d5c21b465b5254777f"
         },
         {
           "path": "images/icon.png",
@@ -334,27 +442,47 @@
         },
         {
           "path": "mod.json",
-          "sha256": "dccaeb32fab5c841accfb5f3d6c64051eb5a513f3c0c6dde92e00212512b4978"
+          "sha256": "58783ed4c79d1b2ea8af0ef5548e6e7e34aeca139c07ea74e56ac9315c455ff5"
+        },
+        {
+          "path": "npc/prontera-vendors-customers.txt",
+          "sha256": "b8a87d0ddddc8e2dfc33ae5ccfc40c6e66d54e8994c361e2c2f324b0a9a57b84"
+        },
+        {
+          "path": "npc/prontera-vendors-market-data.txt",
+          "sha256": "e53acc114acc3adcc5d613d70f816a5afeb85764f827acd0e81d87968ba6481e"
+        },
+        {
+          "path": "npc/prontera-vendors-market.txt",
+          "sha256": "21f2781a0ba9ac0e2814a272184b0502839c9b87debfc22397291ce038053c0a"
         },
         {
           "path": "npc/prontera-vendors-newer.txt",
-          "sha256": "bc8ad6de84fe69e05aa7d29e7b6c8673c5e3c5d94a65804b496644a879323da1"
+          "sha256": "9d57fc8e30ae8e4930d157fda62dbed4f4ace57878f0f7394985c5e4d12f4b69"
         },
         {
           "path": "npc/prontera-vendors.txt",
-          "sha256": "d85a1bd2ee97c8e8de40a352c59943f68bba42115f6148a0f07cbdf597559021"
+          "sha256": "00ece05ed4b084b4c34642925a014787ce464b8f2e884deff3ee635451157711"
         },
         {
           "path": "pre-re/db/population_vendor_pop.yml",
-          "sha256": "94d4d4374a5f3003cf517fe0797ea445871a66894e32455c7c5e411db5bf0800"
+          "sha256": "c76df9746abc9d5d3d272177d066c20859e87a3c2e4d37195817da85746a5fa9"
         },
         {
           "path": "pre-re/db/population_vendor_prices/prontera-vendors.csv",
-          "sha256": "655f3b987f44ddf2fc0d87312ccc2dbcd2c05a17b0477a21b33aed3112b39501"
+          "sha256": "2824002dd05b0490c442d7e374523655a23f7adf7a64507c3d9a3b94f7f00e03"
         },
         {
           "path": "pre-re/db/population_vendors.yml",
-          "sha256": "efa841259ae38a63d34531ee4e44b8648009777427e68eab60b5eb5ca3e1eb0c"
+          "sha256": "541de8d95ccb18512692697eba8d930bcaa6fb3872678e15edb0b404c8b462e0"
+        },
+        {
+          "path": "pre-re/npc/prontera-vendors-market-data.txt",
+          "sha256": "22c39f7a983b2eb44483779eac9fb195c9bf0f729af3db989c51062451b6989e"
+        },
+        {
+          "path": "settings/index.html",
+          "sha256": "d1831b43bce2bc668e839544dbaacc9ac13b1a4cf51bceff6e201605ba0059dc"
         }
       ]
     },
@@ -503,6 +631,61 @@
         {
           "path": "mod.json",
           "sha256": "2030dc7f52e4e7f11d70f701a2defd3342e3bbca926bda30096e86f09eedef2c"
+        }
+      ]
+    },
+    {
+      "name": "waypoint-system",
+      "version": "1.0.0",
+      "author": "BlaXun",
+      "description": "Travel you earn instead of a free warper. Waypoint boards stand on 41 fields and dungeon floors, low to high level. Bring a board the items its monsters drop and it attunes to you; from then on a Waypoint Keeper in any town sends you there for a fee, and the board sends you back. Both eras. Every waypoint, with its board position, the items it asks for and its travel fee per era, is one row of registry/tools/waypoint-system/waypoints.csv in the app repository, built into this mod's scripts; the README says how to add one.",
+      "homepage": "",
+      "tags": [
+        "exploration",
+        "npc",
+        "travel",
+        "warper",
+        "waypoints"
+      ],
+      "icon": "",
+      "screenshots": [],
+      "requires": {
+        "mods": [],
+        "era": "any",
+        "app": ">=1.4.3"
+      },
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "5e62ede7a1d3ea586d2d4dba00101ce97e16f32c08cb5dd95f7489be2a6cc2f0"
+        },
+        {
+          "path": "System/jobname.lub",
+          "sha256": "3e3e4ec17e156cca120124f35d9f86aecb13ddc46411a731c3afde3a04bd55af"
+        },
+        {
+          "path": "data/sprite/npc/wp_npc.act",
+          "sha256": "54ddbb8289e8e2976981f054ceea02709dd44e0a94b8b8dbf6e4160b66037b16"
+        },
+        {
+          "path": "data/sprite/npc/wp_npc.spr",
+          "sha256": "fbc4f8a7ccbc412a4004f611ef3b647160fb66248a25aac78c9677341e9645ac"
+        },
+        {
+          "path": "mod.json",
+          "sha256": "a49d2d9ead5900f08f078a3531c011b64b242bcbc19d47e549255c36fb21506a"
+        },
+        {
+          "path": "npc/waypoints.txt",
+          "sha256": "8fb5c5451bfe3afc18b0bc986034e3b246e94750cc02220b94881d70eeb80f0b"
+        },
+        {
+          "path": "npc/waypoints_placed.txt",
+          "sha256": "0796e677a3b1278ceafbb0b0decfc96c7530a60aaf1e6ada6ed87b9514ea2980"
+        },
+        {
+          "path": "pre-re/npc/waypoints_placed.txt",
+          "sha256": "2b08b5d6dfade6a7e658a239431ec08a0cc3efbe89cbf7aa3617455c2bf5794e"
         }
       ]
     }

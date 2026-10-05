@@ -24,6 +24,10 @@ i.e. what population_engine_spawn_shell actually grants):
   Support     -         yes      ->  ally buff  { Target: ally, not_ally_status, SC_<status> }
   Support     -         no       ->  ally + self restorative { ally_hp_below, hp_below }
   Self        -         yes      ->  self buff  { Target: self, not_self_status, SC_<status> }
+  Self        hits      yes      ->  attack around the caster, only with enemies near
+                                     { Target: self, enemy_count_nearby 2 }. Its Status is
+                                     what it inflicts (Full Moon Kick blinds), so a
+                                     not_self_status row fired it with no enemy in sight.
   Self        -         no       ->  SKIPPED. The buff loop's recast gate resolves a
                                      skill's SC through skill_get_sc() - a C++ table,
                                      independent of this YAML - so a Status-less self
@@ -110,6 +114,7 @@ def load_skill_db():
             "tt": fld("TargetType", "Passive"),
             "max": num("MaxLevel", 1),
             "nodmg": "NoDamage: true" in b,
+            "hits": bool(re.search(r"^    DamageFlags:", b, re.M)) and "NoDamage: true" not in b,
             "status": fld("Status", "") or "",
             "dur": bool(re.search(r"^    Duration1:", b, re.M)),
             "splash": bool(re.search(r"^    SplashArea:", b, re.M)),
@@ -205,6 +210,11 @@ SKIP = re.compile(
     r"|MC_|BS_GREED|BS_HILTBINDING|BS_FINDINGORE|BS_REPAIRWEAPON"
     r"|RG_PLAGIARISM|RG_COMPULSION|SC_|PF_|SA_ABRACADABRA|SA_COMA|SA_ELEMENTWATER|SA_CREATECON"
     r"|HP_MANARECHARGE|HP_MEDITATIO|HP_BASILICA|HP_ASSUMPTIO"
+    r"|BD_ENCORE"  # renewal: recasts the last song, which Dissonance resets; the song rows recast instead
+    r"|WM_DEADHILLHERE"  # revives a dead party member only; the engine casts it, like ALL_RESURRECTION
+    r"|AL_WARP"  # opens a destination menu on the caster's own client; a companion has none, so no portal
+    r"|WL_WHITEIMPRISON"  # typed Support, but lands only on the caster or an enemy: an ally row never succeeds
+    r"|MO_KITRANSLATION|SR_POWERVELOCITY"  # give the caster's spheres to a party member; heal nobody
     r"|HT_MAKINGARROW|AC_MAKINGARROW|HT_TALKIEBOX|HT_REMOVETRAP|HT_SPRINGTRAP|HT_PHANTASMIC"
     r"|TF_STEAL|TF_PICKSTONE|TF_THROWSTONE|TF_SPRINKLESAND"
     r"|WS_CARTBOOST|BS_ADRENALINE2|NC_|GN_|KO_|OB_|RL_|NJ_|TK_|SG_|SO_EL_|SO_SPELLFISH|SO_ELEMENTAL_SHIELD)"
@@ -213,15 +223,19 @@ SKIP = re.compile(
 # Skills the Support-without-Status branch cannot shape correctly. Only the CURES need this: their
 # gate must be "the ally HAS this status" (one row per status, and the status list lives in the
 # skill's impl - `status_change_end` - which no YAML field carries), where the branch's generic
-# "ally is hurt" gate fires on a healthy ally and wastes the cast. Everything else that lands in
-# that branch (AM_BERSERKPITCHER, SR_POWERVELOCITY, MO_KITRANSLATION, MO_ABSORBSPIRITS,
-# WM_DEADHILLHERE) keeps the branch's shape, which is what the 4th jobs already ship - Biolo has an
-# AM_BERSERKPITCHER row and Troubadour/Trouvere have WM_DEADHILLHERE, so excluding them for the
-# 2nd/3rd jobs would make this file inconsistent with its own settled policy.
+# "ally is hurt" gate fires on a healthy ally and wastes the cast. Absorb Spirits needs it too: cast
+# on an ally it takes the ally's spheres, so its rows drain a monster for SP when SP is low, as the
+# Monk's do. Ki Translation and Power Velocity, which give the caster's spheres away and heal
+# nobody, are in SKIP. Everything else that lands in that branch (AM_BERSERKPITCHER) keeps the
+# branch's shape, which is what the 4th jobs already ship - Biolo has an AM_BERSERKPITCHER row, so
+# excluding them for the 2nd/3rd jobs would make this file inconsistent with its own settled policy.
+# WM_DEADHILLHERE is in SKIP instead: it only revives, so the engine casts it on a dead party member.
 HAND_WRITTEN = {
     "AL_CURE": "cure: needs Condition: ally_status per status, from cure.cpp",
     "TF_DETOXIFY": "cure: needs Condition: ally_status per status, from detoxify.cpp",
     "GC_ANTIDOTE": "cure: needs Condition: ally_status per status, from antidote.cpp",
+    "MO_ABSORBSPIRITS": "SP drain: cast on a monster when SP is low, not on a hurt ally",
+    "CG_MARIONETTE": "its SC_MARIONETTE is the caster's (the ally gets SC_MARIONETTE2): not_self_status",
 }
 
 def q(skill, extra):
@@ -260,6 +274,8 @@ def rows_for(skill, meta, sc_ok, deep):
         ], "ally-heal"
 
     if tt == "Self":
+        if meta["hits"] and status:
+            return [q(skill, f"Level: {lv}, Rate: 8000, Target: self, Condition: enemy_count_nearby, CondValue: 2")], "self-attack"
         if not status:
             return None, "self skill with no Status (recast cannot be gated from YAML)"
         sc = "SC_" + status.upper()

@@ -23,8 +23,9 @@ const STYLE = `
 .stats { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 2px 10px; margin: 4px 0; }
 .stats b { color: #556; font-weight: normal; }
 .empty { color: #889; padding: 8px; }
-.launcher { position: fixed; left: 8px; top: 120px; z-index: 8999; font: bold 11px Tahoma, sans-serif; padding: 4px 6px;
-  border: 1px solid #6b7a99; border-radius: 4px; background: linear-gradient(#f3f6fd, #d3dbef); color: #273256; cursor: pointer; }
+.launcher { position: fixed; right: 145px; top: 66px; width: 43px; height: 22px; z-index: 8999; font: bold 11px Tahoma, sans-serif; padding: 0;
+  border: 1px solid #6b7a99; border-radius: 4px; background: linear-gradient(#f3f6fd, #d3dbef); color: #273256; cursor: pointer; display: none; }
+.launcher.ingame { display: block; }
 `;
 
 const escape = text => String(text).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -124,15 +125,32 @@ export default function init(parameters, api) {
     body.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => { select(b.dataset.tab); input.focus(); }));
     body.querySelector('form').addEventListener('submit', event => { event.preventDefault(); search(); });
 
+    // Only in game: not on the login and character screens, where there is nothing to
+    // look things up for and the button sat on top of their windows.
+    let inGame = false;
+    let launcher = null;
+    const setInGame = value => {
+        inGame = value;
+        launcher?.classList.toggle('ingame', value);
+        if (!value && win.isOpen()) win.hide();
+    };
+    api.on('map:enter', () => setInGame(true), { replay: true });
+    api.on('map:leave', () => setInGame(false));
+
     // Open with Alt+D, or the button.
-    const onKey = event => { if (event.altKey && event.code === 'KeyD') { event.preventDefault(); win.toggle(); if (win.isOpen()) input.focus(); } };
+    const onKey = event => { if (inGame && event.altKey && event.code === 'KeyD') { event.preventDefault(); win.toggle(); if (win.isOpen()) input.focus(); } };
     addEventListener('keydown', onKey, true);
     api.cleanup(() => removeEventListener('keydown', onKey, true));
     if (parameters?.show_button !== false) {
         const host = document.createElement('div');
         const root = host.attachShadow({ mode: 'open' });
-        root.innerHTML = `<style>${STYLE}</style><button class="launcher" title="Database (Alt+D)">DB</button>`;
-        root.querySelector('button').addEventListener('click', () => { win.toggle(); if (win.isOpen()) input.focus(); });
+        // Under the Cash Shop button by the minimap (right: 145px, top: 17px, 43x45 in the
+        // client's CashShopIcon.css), anchored to the same edge so it stays beside it.
+        root.innerHTML = `<style>${STYLE}</style><button class="launcher${inGame ? ' ingame' : ''}" title="Database (Alt+D)">DB</button>`;
+        launcher = root.querySelector('button');
+        // The map is under the button: a press here must not walk the character there.
+        launcher.addEventListener('mousedown', event => event.stopImmediatePropagation());
+        launcher.addEventListener('click', () => { win.toggle(); if (win.isOpen()) input.focus(); });
         document.body.appendChild(host);
         api.cleanup(() => host.remove());
     }

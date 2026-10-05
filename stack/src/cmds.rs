@@ -1105,6 +1105,46 @@ fn image_marker(fingerprint: &str, actual: &[(&str, Option<String>)]) -> String 
     format!("v2:{fingerprint}:{}\n", ids.join(":"))
 }
 
+/// Untagged images, from `images --format json` (one object per line).
+///
+/// Every update loads the new bundle and moves both tags onto it, which leaves
+/// the previous release's images behind with no tag -- about 350 MB each time,
+/// on a data disk of fixed size, until a load fails for want of space. Nothing
+/// else in the engine is untagged: the server images and nebula's own pause
+/// image all carry tags.
+fn untagged_images(listing: &str) -> Vec<(String, u64)> {
+    listing.lines().filter_map(|line| {
+        let v = crate::json::parse(line.trim()).ok()?;
+        let tags: Vec<&str> = match v.get("RepoTags") {
+            Some(crate::json::Value::Array(a)) => a.iter().filter_map(|t| match t { crate::json::Value::String(s) => Some(s.as_str()), _ => None }).collect(),
+            None | Some(crate::json::Value::Null) => Vec::new(),
+            _ => return None,
+        };
+        if !tags.iter().all(|t| t.is_empty() || *t == "<none>:<none>") { return None; }
+        let id = v.str("Id")?.to_string();
+        let size = match v.get("Size") { Some(crate::json::Value::Number(n)) if *n > 0.0 => *n as u64, _ => 0 };
+        Some((id, size))
+    }).collect()
+}
+
+/// Remove the images earlier updates left behind. Never forced: the engine
+/// refuses an image a container still uses, and that one is simply tried
+/// again at the next start. Best effort, so a failure here never stops a start.
+/// (`image prune` cannot do this: nebula's engine answers it without deleting.)
+fn prune_old_images(dk: &Docker) {
+    let Ok(listing) = dk.output(["images", "--format", "json"]) else { return };
+    let (mut removed, mut freed) = (0, 0u64);
+    for (id, size) in untagged_images(&listing) {
+        if dk.quiet(["rmi", &id]) {
+            removed += 1;
+            freed += size;
+        }
+    }
+    if removed > 0 {
+        println!("Removed {removed} old server image(s), {} MB", freed / 1_000_000);
+    }
+}
+
 fn ensure_images(cfg: &Config, dk: &Docker) -> Result<(), String> {
     let tags = [cfg.image.as_str(), cfg.db_image.as_str()];
     let current = |dk: &Docker| tags.iter().map(|t| (*t, image_id(dk, t))).collect::<Vec<_>>();
@@ -1125,6 +1165,9 @@ fn ensure_images(cfg: &Config, dk: &Docker) -> Result<(), String> {
     }
     // Skip the load when the tags already point at this bundle (a marker from an older release, say).
     if !images_match(&expected, &before) {
+        // Before the load, not only after: an install whose disk is already
+        // full of old releases would otherwise fail here forever.
+        prune_old_images(dk);
         phase(cfg, "Loading the bundled server images…");
         // "Done" is the bundle's own images being in place -- not merely some
         // image under each tag. On an upgrade the previous release's images
@@ -1263,6 +1306,9 @@ const COMPANION_COLUMNS: &[(&str, &str)] = &[
     // v10: companions belong to a character, not an account. 0 on an existing row means
     // "saved before this"; the first character of that account to log in claims it.
     ("owner_char_id", "INT UNSIGNED NOT NULL DEFAULT 0"),
+    // v11: every worn piece in full -- refine, cards, options -- where the *_nameid
+    // columns keep only an id. NULL on an existing row, which recalls as it always did.
+    ("gear_detail", "TEXT NULL DEFAULT NULL"),
 ];
 
 /// Indexes added after the table first shipped, as (name, columns).
@@ -1277,6 +1323,30 @@ fn companion_table_sql() -> String {
         .chain(COMPANION_INDEXES.iter().map(|(name, columns)| format!("ADD INDEX IF NOT EXISTS `{name}` ({columns})")))
         .collect();
     format!("{COMPANION_SCHEMA}\nALTER TABLE `cp_companion_persistence` {};\n", added.join(", "))
+}
+
+/// rAthena's web server: guild emblems, reached by the client only through
+/// the asset server (WEB_SERVER_TARGET). Not one of `SERVERS`: those decide
+/// whether a launch failed, and a world without emblems still plays.
+const WEB_SERVER: &str = "ragnarok-web";
+
+/// The web server keeps emblems here (rAthena sql-files/web.sql). main.sql
+/// does not create it, and the app never imported web.sql; its other tables
+/// (user, character and merchant configs) answer requests this client never
+/// makes, so only this one is created.
+const GUILD_EMBLEMS_TABLE: &str = "CREATE TABLE IF NOT EXISTS `guild_emblems` (
+  `world_name` varchar(32) NOT NULL,
+  `guild_id` int(11) unsigned NOT NULL,
+  `file_type` varchar(255) NOT NULL,
+  `file_data` blob,
+  `version` int(11) unsigned NOT NULL default '0',
+  PRIMARY KEY (`world_name`, `guild_id`)
+) ENGINE=MyISAM";
+
+fn ensure_guild_emblems_table(dk: &Docker) -> Result<(), String> {
+    dk.private_sql(GUILD_EMBLEMS_TABLE)
+        .map(|_| ())
+        .map_err(|e| format!("preparing the guild emblem table: {e}"))
 }
 
 fn ensure_companion_table(dk: &Docker) -> Result<(), String> {
@@ -1427,7 +1497,7 @@ fn run_server(cfg: &Config, dk: &Docker, name: &str, port: u16, binary: &str, la
 
 fn stop_game_services(cfg: &Config, dk: &Docker) -> Result<(), String> {
     crate::crashes::capture_all(cfg, dk);
-    for service in ["ragnarok-map", "ragnarok-char", "ragnarok-login"] {
+    for service in [WEB_SERVER, "ragnarok-map", "ragnarok-char", "ragnarok-login"] {
         if dk.is_running(service) && (dk.output(["stop", "-t", "30", service]).is_err() || dk.is_running(service)) {
             return Err(format!("Could not stop {service} cleanly; database credentials were not changed."));
         }
@@ -1624,7 +1694,7 @@ pub fn up(cfg: &Config, dk: &Docker, lan: bool, ram_mib: Option<u32>) -> Result<
         // kills their chance to save when run_server later removes them.
         // Stop MariaDB cleanly too; rm -f would make every era switch a crash
         // recovery (including MyISAM tables such as loginlog).
-        for service in ["ragnarok-map", "ragnarok-char", "ragnarok-login", DB_CONTAINER] {
+        for service in [WEB_SERVER, "ragnarok-map", "ragnarok-char", "ragnarok-login", DB_CONTAINER] {
             if dk.is_running(service)
                 && (dk.output(["stop", "-t", "30", service]).is_err() || dk.is_running(service))
             {
@@ -1697,6 +1767,7 @@ pub fn up(cfg: &Config, dk: &Docker, lan: bool, ram_mib: Option<u32>) -> Result<
     // can read it. An error stops the start: a map server without this table logs a
     // failed query on every recall and snapshot, and nothing on screen says why.
     ensure_companion_table(dk)?;
+    ensure_guild_emblems_table(dk)?;
 
     // Every client arrives through the WebSocket proxy, so every connection has
     // the same source address; rAthena's per-IP flood protection trips on sight
@@ -1704,6 +1775,7 @@ pub fn up(cfg: &Config, dk: &Docker, lan: bool, ram_mib: Option<u32>) -> Result<
     // client sits on the char socket parsing its databases, which can exceed
     // the default 60s stall_time on a modern client.
     write_conf(&conf, "packet_conf.txt", "stall_time: 300\nenable_ip_rules: no\n")?;
+    write_conf(&conf, "web_conf.txt", &cfg.ports.web_conf())?;
     write_conf(&conf, "inter_conf.txt", concat!(
         "login_server_ip: ragnarok-db\n", "ipban_db_ip: ragnarok-db\n",
         "char_server_ip: ragnarok-db\n", "map_server_ip: ragnarok-db\n",
@@ -1847,12 +1919,20 @@ pub fn up(cfg: &Config, dk: &Docker, lan: bool, ram_mib: Option<u32>) -> Result<
     run_server(cfg, dk, "ragnarok-login", ports.login, &format!("/rathena/login-server{ver}"), lan)?;
     run_server(cfg, dk, "ragnarok-char", ports.char, &format!("/rathena/char-server{era}{ver}"), lan)?;
     run_server(cfg, dk, "ragnarok-map", ports.map, &format!("/rathena/map-server{era}{ver}"), lan)?;
+    // Loopback even when hosting: players reach it through the asset server,
+    // which forwards only the two emblem paths. Its build is era-independent.
+    if let Err(e) = run_server(cfg, dk, WEB_SERVER, ports.web, &format!("/rathena/web-server{ver}"), false) {
+        eprintln!("warning: guild emblems are unavailable: {e}");
+    }
     phase(cfg, "Loading maps and NPCs…");
     wait_for_maps(dk)?;
     // After the map server has read its tables and before anyone is told the
     // world is ready: this is the only moment rAthena's verdict on the mods'
     // own tables exists, and it exists in its log and nowhere else.
     crate::mods::record_load_report(cfg, dk);
+    // Every container is now on the current images, so whatever an update
+    // left behind is free to go.
+    prune_old_images(dk);
     phase(cfg, "Ready");
     println!("stack up");
     // The one string a host pastes to a friend. Printed rather than only
@@ -1877,6 +1957,7 @@ pub fn down(cfg: &Config, dk: &Docker) -> Result<(), String> {
     for c in SERVERS {
         dk.remove_container(c);
     }
+    dk.remove_container(WEB_SERVER);
     if dk.is_running(DB_CONTAINER) && (dk.output(["stop", "-t", "30", DB_CONTAINER]).is_err() || dk.is_running(DB_CONTAINER)) {
         return Err("Could not stop the database cleanly; the VM was left running to protect the save.".into());
     }
@@ -2695,6 +2776,24 @@ pub(crate) fn human(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
 
+    #[test]
+    fn untagged_images_are_the_ones_updates_leave_behind() {
+        // Lines as nebula's docker-slim prints them (trimmed of fields not read).
+        let listing = concat!(
+            r#"{"Containers":-1,"Id":"sha256:069718ce","Labels":{"app.ragnarokoffline.private-db-files":"v1"},"RepoDigests":[],"RepoTags":["ragnarokmac/mariadb:11.4"],"Size":81655296}"#, "\n",
+            r#"{"Containers":-1,"Id":"sha256:4ebf8add","Labels":{},"RepoDigests":[],"RepoTags":["<none>:<none>"],"Size":266510848}"#, "\n",
+            r#"{"Containers":-1,"Id":"sha256:9c5431bd","Labels":{},"RepoDigests":[],"RepoTags":["ragnarokmac/rathena:20221005"],"Size":270085120}"#, "\n",
+            r#"{"Containers":-1,"Id":"sha256:7dcc8385","Labels":{},"RepoDigests":[],"RepoTags":[],"Size":81655296}"#, "\n",
+            r#"{"Containers":-1,"Id":"sha256:f363fabf","Labels":{},"RepoDigests":[],"RepoTags":["nebula/pause:slim"],"Size":363904}"#, "\n",
+            "not json\n",
+        );
+        assert_eq!(super::untagged_images(listing), vec![
+            ("sha256:4ebf8add".to_string(), 266510848),
+            ("sha256:7dcc8385".to_string(), 81655296),
+        ]);
+        assert!(super::untagged_images("").is_empty());
+    }
+
     fn dump_file(tag: &str, body: &[u8]) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("ro-dump-{tag}-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
@@ -2770,7 +2869,7 @@ mod tests {
     /// added.
     #[test]
     fn the_endpoint_names_the_configured_ports() {
-        let moved = crate::ports::Ports { asset: 13338, login: 16900, char: 16121, map: 15121, agent: 17490 };
+        let moved = crate::ports::Ports { asset: 13338, login: 16900, char: 16121, map: 15121, web: 18888, agent: 17490 };
         assert_eq!(
             super::endpoint_json("127.0.0.1", &moved),
             "{\"host\":\"127.0.0.1\",\"login\":16900,\"char\":16121,\"map\":15121,\"asset\":13338}\n"

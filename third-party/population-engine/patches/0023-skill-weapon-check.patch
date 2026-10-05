@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000023
+Subject: [PATCH] Settings: population PCs can be held to skill weapon requirements
+
+skill_get_requirement returns early for population PCs, before the weapon,
+ammo and item requirements, so a companion used any skill with any weapon: a
+Minstrel sang with a bow. Settings -> Population -> Weapon rules turns on
+population_engine_skill_weapon_check, which keeps the weapon requirement for
+them. Ammo and items stay relaxed, since they have no inventory to manage.
+Off, the default, is the behaviour before.
+
+--- a/src/custom/battle_config_init.inc
++++ b/src/custom/battle_config_init.inc
+@@ -65,3 +65,4 @@
+ { "population_engine_companion_hire_zeny_per_level",&battle_config.population_engine_companion_hire_zeny_per_level,0,0,1000000,},
+ { "population_engine_companion_hire_item",&battle_config.population_engine_companion_hire_item,0,0,INT_MAX,},
+ { "population_engine_companion_hire_item_amount",&battle_config.population_engine_companion_hire_item_amount,0,0,30000,},
++{ "population_engine_skill_weapon_check",&battle_config.population_engine_skill_weapon_check,0,0,1,},
+--- a/src/custom/battle_config_struct.inc
++++ b/src/custom/battle_config_struct.inc
+@@ -129,3 +129,6 @@
+ int32 population_engine_companion_hire_zeny_per_level;
+ int32 population_engine_companion_hire_item;
+ int32 population_engine_companion_hire_item_amount;
++/// Skills: 1 = population PCs must hold the weapon a skill requires, as players
++/// must; 0 = any skill with any weapon (as before). Ammo and items stay relaxed.
++int32 population_engine_skill_weapon_check;
+--- a/src/map/skill.cpp
++++ b/src/map/skill.cpp
+@@ -9858,8 +9858,12 @@
+ 	req.state = skill->require.state;
+ 
+ 	// Runtime population PCs have no client; relax weapon/ammo/item requirements (see pc_isequip for equip).
+-	if (population_engine_is_population_pc(sd->id))
++	// The weapon is held to the player's rules when Settings asks (population_engine_skill_weapon_check).
++	if (population_engine_is_population_pc(sd->id)) {
++		if (battle_config.population_engine_skill_weapon_check)
++			req.weapon = skill->require.weapon;
+ 		return req;
++	}
+ 
+ 	req.mhp = skill->require.mhp[skill_lv-1];
+ 	req.weapon = skill->require.weapon;

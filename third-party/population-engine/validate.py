@@ -83,6 +83,68 @@ if os.path.exists(db):
 else:
     print(f"note: no item database at {db}, skipping the gear slot check")
 
+# --- pre-renewal: no job of the era spawns with an empty slot (#325) --------
+# Most gear sets are built from renewal-only items; a pre-renewal server skips each one, and a
+# slot left with nothing spawns empty. A set's PreRenewal block replaces those pools there.
+pre_db = os.path.join(RA, 'db', 'pre-re', 'item_db_equip.yml')
+pre_jobs = os.path.join(RA, 'db', 'pre-re', 'job_stats.yml')
+if os.path.exists(pre_db) and os.path.exists(pre_jobs):
+    pre_loc = {}
+    for m in re.finditer(r'AegisName:\s*(\S+)\s*\n(.*?)(?=\n  - Id:|\Z)',
+                         open(pre_db, encoding='utf-8', errors='replace').read(), re.S):
+        pre_loc[m.group(1).strip()] = set(re.findall(r'^\s+(\w+):\s*true\s*$', m.group(2), re.M))
+    def norm(job):
+        j = job.lower().replace('_', '').replace('swordsman', 'swordman')
+        return 'high' + j[:-4] if j.endswith('high') else j
+    era_jobs = {norm(j) for j in re.findall(r'^\s+(\w+):\s*true\s*$', open(pre_jobs).read(), re.M)}
+    sets_used = {}
+    for src in ('population_engine.yml', 'population_pvp.yml', 'population_vendor_pop.yml'):
+        for job, gset in re.findall(r'^\s+(\w+)\s*:\s*(\w+)\s*$', open(os.path.join(FILES, src)).read(), re.M):
+            if norm(job) in era_jobs:
+                sets_used.setdefault(gset, set()).add(job)
+    gs = open(os.path.join(FILES, 'population_gear_sets.yml')).read()
+    for blk in re.split(r'^  - GearSetName: ', gs, flags=re.M)[1:]:
+        name = blk.split()[0]
+        # RenewalOnly: a set only 3rd and 4th classes wear; pre-renewal passes it over unread.
+        if re.search(r'^    RenewalOnly:\s*true\s*$', blk, re.M):
+            if name in sets_used:
+                print(f"FAIL {name}: RenewalOnly, but {', '.join(sorted(sets_used[name]))} "
+                      f"wear it in pre-renewal and would spawn without it")
+                fail += 1
+            continue
+        own, pre = blk, ''
+        if '\n    PreRenewal:' in blk:
+            own, pre = blk.split('\n    PreRenewal:', 1)
+        for slot, allowed in SLOT.items():
+            pm = re.search(rf'^      {slot}:\s*\n((?:\s+-\s+\S+\n?)+)', pre, re.M)
+            if pm:
+                for item in re.findall(r'-\s+(\S+)', pm.group(1)):
+                    if item not in pre_loc:
+                        print(f"FAIL {name}/PreRenewal/{slot}: {item} is not in the pre-renewal item database")
+                        fail += 1
+                    elif not (pre_loc[item] & allowed):
+                        print(f"FAIL {name}/PreRenewal/{slot}: {item} is {sorted(pre_loc[item])}")
+                        fail += 1
+                continue
+            om = re.search(rf'^    {slot}:\s*\n((?:\s+-\s+\S+\n)+)', own, re.M)
+            if not om:
+                continue
+            items = re.findall(r'-\s+(\S+)', om.group(1))
+            # Each item pre-renewal lacks is logged as unknown on every start-up there.
+            missing = [i for i in items if not i.isdigit() and i not in pre_loc]
+            if missing:
+                print(f"FAIL {name}/{slot}: {', '.join(missing)} not in pre-renewal, logged on every start "
+                      f"there; add a PreRenewal {slot}, or mark the set RenewalOnly if no job of the era wears it")
+                fail += 1
+            if name not in sets_used:
+                continue
+            if not any(i.isdigit() or i in pre_loc for i in items):
+                print(f"FAIL {name}/{slot}: nothing in it exists in pre-renewal, so "
+                      f"{', '.join(sorted(sets_used[name]))} spawn there with it empty; add a PreRenewal {slot}")
+                fail += 1
+else:
+    print(f"note: no pre-renewal item database at {pre_db}, skipping the pre-renewal gear check")
+
 # --- vendor placements are shaped the way the parser expects ---------------
 vend = open(os.path.join(FILES, 'population_vendors.yml')).read()
 areas = re.findall(r'^\s+Area:\s*\n((?:\s+[A-Za-z0-9]+\s*:\s*-?\d+\s*\n)+)', vend, re.M)

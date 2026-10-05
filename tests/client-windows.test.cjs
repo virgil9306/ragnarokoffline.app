@@ -71,3 +71,15 @@ test('server requests take a command name and one line of text, nothing else', a
     const { api: old } = createRuntime().scope('q');
     await assert.rejects(old.server.request('moddb', 'x'), /cannot make server requests/);
 });
+
+test('a server script speaking first reaches plugins as server:event', async () => {
+    const { createRuntime } = await runtimeModule;
+    const runtime = createRuntime();
+    const { api } = runtime.scope('card-remover');
+    const heard = [];
+    api.on('server:event', event => heard.push(event));
+    runtime.serverEvent('cardremover', 'open');
+    runtime.serverEvent('cardremover', 42);
+    assert.deepEqual(heard, [{ command: 'cardremover', text: 'open' }]);
+    assert.ok(Object.isFrozen(heard[0]));
+});

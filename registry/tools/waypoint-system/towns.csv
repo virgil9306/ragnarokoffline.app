@@ -1,0 +1,33 @@
+# waypoint-system: towns with a Waypoint Keeper. One row per town.
+# X,Y is where the keeper stands; Dir is the way it faces (0 north, 2 west,
+#   4 south, 6 east). The spots are two cells beside rAthena's custom warper
+#   (npc/custom/warper.txt), so both fit when common-npcs is on too.
+# Era: any, re or pre-re -- a town that only exists in one era.
+# Regenerate the mod's scripts after editing:
+#   python3 registry/tools/waypoint-system/build_waypoints.py --write
+Map,Name,X,Y,Dir,Era
+prontera,Prontera,157,192,4,any
+izlude,Izlude,136,150,4,re
+izlude,Izlude,134,120,4,pre-re
+geffen,Geffen,126,72,4,any
+payon,Payon,180,108,4,any
+morocc,Morroc,159,95,4,any
+alberta,Alberta,26,240,4,any
+aldebaran,Al De Baran,147,118,4,any
+yuno,Juno,164,47,4,any
+comodo,Comodo,196,158,4,any
+umbala,Umbala,104,150,4,any
+einbroch,Einbroch,67,202,4,any
+lighthalzen,Lighthalzen,164,102,4,any
+hugel,Hugel,99,151,4,any
+rachel,Rachel,137,116,4,any
+veins,Veins,212,123,4,any
+amatsu,Amatsu,205,87,4,any
+gonryun,Kunlun,164,122,4,any
+louyang,Louyang,206,103,4,any
+ayothaya,Ayothaya,207,169,4,any
+moscovia,Moscovia,231,191,4,any
+niflheim,Niflheim,207,179,4,any
+dewata,Dewata,206,186,4,re
+malaya,Port Malaya,229,204,4,re
+brasilis,Brasilis,203,222,4,re

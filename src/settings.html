@@ -164,10 +164,101 @@
   .subactions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-left: auto; }
   .subactions button { flex: 0 0 auto; white-space: nowrap; padding: 5px 10px; font-size: 12px; }
   .subactions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .substatus { flex: 1 0 100%; display: flex; align-items: center; gap: 10px;
-    color: var(--dim); font-size: 12px; }
-  .substatus.warn { color: var(--warn, #d9a066); font-weight: 600; }
-  .substatus button { padding: 3px 10px; font-size: 12px; flex: none; white-space: nowrap; }
+  /* What Apply is waiting for, or what it left to do: pinned to the bottom of
+     the window, so it is in view from anywhere in the three lists. */
+  .applybar { position: sticky; bottom: 0; z-index: 4; display: flex; flex-wrap: wrap; align-items: center;
+    gap: 6px 10px; margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--panel); color: var(--dim); font-size: 12px; }
+  .applybar.warn { border-color: var(--accent-dim); background: var(--panel-hi); color: var(--text-2); }
+  .applybar .what { flex: 1 1 260px; min-width: 0; }
+  .applybar .what b { color: var(--text); font-weight: 600; }
+  .applybar.warn .what b { color: var(--warn); }
+  .applybar .what small { display: block; color: var(--dim); font-size: 11px; overflow-wrap: anywhere; }
+  .applybar button { padding: 5px 12px; font-size: 12px; flex: none; white-space: nowrap; }
+  .applybar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Installed: one line per mod -- switch, picture, name and badges, one line
+     of description -- and the rest of it a click on the name away. The switch
+     sits outside the part that opens the row, so switching never opens it. */
+  .mgroup { margin: 14px 0 4px; font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--dim); font-weight: 600; }
+  .mgroup:first-child { margin-top: 2px; }
+  .mrow { border-bottom: 1px solid var(--line); }
+  .mrow:last-child { border-bottom: 0; }
+  .mrow-main { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: center; }
+  .mrow-hit { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 10px; align-items: center;
+    width: 100%; min-width: 0; padding: 9px 0; background: none; border: 0; border-radius: 6px;
+    color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .mrow-hit:hover:not(:disabled) { background: none; }
+  .mrow-hit:hover .mname { color: var(--accent-hi); }
+  .mrow-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .mrow-hit .modicon { width: 36px; height: 36px; font-size: 14px; }
+  .mhead { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; }
+  .mname { color: var(--text); font-weight: 600; font-size: 13.5px; overflow-wrap: anywhere; }
+  .mname::before { content: "▸"; display: inline-block; width: 12px; color: var(--dim); font-size: 10px; transition: transform .15s; }
+  .mrow.open .mname::before { transform: rotate(90deg); }
+  .mone { color: var(--text-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mrow.off .mname, .mrow.off .mone { opacity: .6; }
+  /* Open, the full description is underneath: no need for the short one. */
+  .mrow.open .mone { display: none; }
+  .mrow-more { display: grid; gap: 10px; padding: 0 0 14px 90px; min-width: 0; }
+  .mrow-more .moddesc { margin: 0; white-space: pre-wrap; }
+  .mrow-more .mmeta { color: var(--dim); font-size: 12px; overflow-wrap: anywhere; }
+  .mrow-more .mline { font-size: 12px; overflow-wrap: anywhere; }
+  .mrow-more .mline.bad { color: var(--bad, #e5534b); }
+  .mrow-more .mline.warn { color: var(--warn, #d98); }
+  .mrow-more .mline.dim { color: var(--dim); }
+  .mrow-more .mline button { font-size: 11px; padding: 1px 8px; margin-left: 4px; }
+  .mbox { background: var(--panel-hi); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+    display: grid; gap: 8px; font-size: 12px; }
+  .mbox h4 { margin: 0; font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  .mbox.host { border-color: #d9a06655; }
+  /* A label, but not the page's label-and-field row: the text takes the width. */
+  label.mopt { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 0; }
+  label.mopt > span:first-child { width: auto; color: var(--text); }
+  .mopt .hint { grid-column: 1 / -1; color: var(--dim); font-size: 11px; }
+  .mopt input[type=number] { width: 96px; }
+  .mopt input[type=text] { width: min(220px, 40vw); }
+  .mactions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .mactions button { font-size: 12px; padding: 3px 10px; }
+  .mactions .note { margin: 0; font-size: 11px; }
+  @media (max-width: 520px) { .mrow-more { padding-left: 0; } }
+
+  /* Small state badges after a mod's name. */
+  .pill { font-size: 10.5px; font-weight: 600; padding: 0 7px; border-radius: 9px; line-height: 17px;
+    white-space: nowrap; border: 1px solid var(--line); color: var(--dim); }
+  .pill.gh { border-color: var(--accent-dim); color: var(--accent-hi); }
+  .pill.upd { border-color: #d9a06688; color: var(--warn); }
+  .pill.bad { border-color: #c97a7a88; color: var(--bad); }
+  .pill.ok { border-color: #6fb98f66; color: var(--ok); }
+  .pill.pend { border-color: var(--accent); border-style: dashed; color: var(--accent-hi); }
+
+  /* Switches for a mod and its yes/no options: a white knob, blue when on,
+     as in the settings windows mods ship. */
+  .sw { position: relative; display: inline-block; width: 34px; height: 20px; flex: none; }
+  .sw input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; z-index: 1; }
+  .sw span { position: absolute; inset: 0; border-radius: 10px; background: #8886; transition: background .15s; }
+  .sw span::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+    border-radius: 50%; background: #fff; transition: transform .15s; }
+  .sw input:checked + span { background: #4a8fe7; }
+  .sw input:checked + span::after { transform: translateX(14px); }
+  .sw input:focus-visible + span { outline: 2px solid var(--accent-hi); outline-offset: 2px; }
+  .sw input:disabled { cursor: not-allowed; }
+  .sw input:disabled + span { opacity: .35; }
+  @media (prefers-reduced-motion: reduce) { .sw span, .sw span::after, .mname::before { transition: none; } }
+
+  /* Updates: what is waiting, and when the app last asked. */
+  .updrow { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+    padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .updrow:last-child { border-bottom: 0; }
+  .updrow .modicon { width: 36px; height: 36px; font-size: 14px; }
+  .updrow .mname::before { content: none; }
+  .updrow .acts { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+  .updrow .acts button { font-size: 12px; padding: 4px 12px; }
+
+  /* Find Mods: the most used tags, as filters over the search box. */
+  .tagbar { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px; }
+  .tagbar button.chip[aria-pressed="true"] { border-color: var(--accent); color: var(--text); }
   .findbar { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
   .findbar label { flex: 1 1 auto; min-width: 0; padding: 0; }
   .findbar label > span:first-child { width: auto; }
@@ -191,7 +282,6 @@
   button.modname { background: none; border: 0; padding: 0; border-radius: 3px; text-align: left; }
   button.modname:hover:not(:disabled) { background: none; color: var(--accent-hi); text-decoration: underline; }
   .modver { color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
-  .modinstalled { color: var(--ok); font-size: 12px; font-weight: 600; }
   .modbyline { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
     margin-top: 2px; font-size: 12px; color: var(--dim); }
   .modauthor { color: var(--text-2); }
@@ -631,48 +721,52 @@
   </div>
 
   <div class="tabpanel" id="panel-mods" role="tabpanel" aria-labelledby="tab-mods" hidden>
-  <!-- Pinned under the section tabs while the mod list scrolls: which half of
-       Mods you are in on the left, the things you do to the whole list on the
-       right. Check for updates is not here -- it lives with Find Mods, next to
-       the list it is about, and the line has to fit at the window's default
-       width. -->
+  <!-- Pinned under the section tabs while the lists scroll: the three lists on
+       the left, the ways to add a mod by hand on the right. Apply lives in the
+       bar at the bottom, with what it is waiting for. -->
   <div class="subbar">
     <div class="subtabs" role="tablist" aria-label="Mods">
-      <button role="tab" class="tab" id="modstab-installed" aria-controls="mods-installed" aria-selected="true" tabindex="0">Mods<span class="tabcount" aria-hidden="true" hidden></span></button>
-      <button role="tab" class="tab" id="modstab-find" aria-controls="mods-registry" aria-selected="false" tabindex="-1">Find Mods<span class="tabcount" aria-hidden="true" hidden></span></button>
+      <button role="tab" class="tab" id="modstab-installed" aria-controls="mods-installed" aria-selected="true" tabindex="0">Installed</button>
+      <button role="tab" class="tab" id="modstab-updates" aria-controls="mods-updates-panel" aria-selected="false" tabindex="-1">Updates<span class="tabcount" aria-hidden="true" hidden></span></button>
+      <button role="tab" class="tab" id="modstab-find" aria-controls="mods-registry" aria-selected="false" tabindex="-1">Find Mods</button>
     </div>
     <div class="subactions">
-      <button id="mods-install" class="ghost">Install from a folder…</button>
-      <button id="mods-install-skin" class="ghost">Install a UI skin…</button>
+      <button id="mods-install" class="ghost" title="A mod's folder, or a .zip or .rar of one">Add mod from folder…</button>
+      <button id="mods-install-skin" class="ghost" title="A folder of interface pictures, or a cursor pack">Add UI skin…</button>
       <button id="mods-folder" class="ghost">Open mods folder</button>
-      <button id="mods-apply" class="ghost">Apply</button>
-    </div>
-    <!-- What Apply is waiting for, or what it left to do. In the pinned
-         header so it is in view from anywhere in either list. -->
-    <div class="substatus" id="mods-status" role="status" aria-live="polite" hidden>
-      <span id="mods-status-text"></span>
-      <button id="mods-reopen" class="ghost" hidden>Reopen game</button>
     </div>
   </div>
   <div id="mods-installed" role="tabpanel" aria-labelledby="modstab-installed">
   <div class="panel">
     <div id="mods-list" class="note">Looking…</div>
-    <p class="note">A mod is a folder. Drop one in and it appears here. Server
-       changes need the server restarted, which Apply does; client changes —
-       sprites, styling — need the app restarted.</p>
-    <p class="note">A UI skin is a folder of interface pictures in the official
-       client's skin format, or a .zip or .rar of one; a cursor pack is a
-       <code>cursors.spr</code> and <code>cursors.act</code>. Each becomes a mod,
-       and only one skin and one cursor pack are on at a time.</p>
   </div>
+  <p class="note">A mod is a folder. Drop one in the mods folder and it appears here.
+     Switches and options wait for Apply, which restarts the server; a mod that
+     changes the game window also needs the game reopened, and the bar below says
+     when. A UI skin is a folder of interface pictures in the official client's
+     skin format, or a .zip or .rar of one; a cursor pack is a
+     <code>cursors.spr</code> and <code>cursors.act</code>. Only one skin and one
+     cursor pack are on at a time.</p>
+  </div>
+  <div id="mods-updates-panel" role="tabpanel" aria-labelledby="modstab-updates" hidden>
+  <div class="panel">
+    <div class="findbar">
+      <span class="note" id="mods-checked" style="flex:1 1 auto; margin:0">Mods from the mod list and from GitHub.</span>
+      <button id="mods-updates" class="ghost">Check for updates</button>
+    </div>
+    <div id="mods-update-list" class="note">Looking…</div>
+  </div>
+  <p class="note">An update comes straight from its author's repository and is not
+     reviewed. Update… shows you the release before anything changes; your options
+     and whether the mod is on are kept, and the new files load at the next Apply.</p>
   </div>
   <div id="mods-registry" role="tabpanel" aria-labelledby="modstab-find" hidden>
   <div class="panel">
     <div class="findbar">
       <label><span>Search</span>
         <input type="text" id="mods-search" placeholder="name, author or what it does" /></label>
-      <button id="mods-updates" class="ghost">Check for updates</button>
     </div>
+    <div class="tagbar" id="mods-tags" role="group" aria-label="Show mods tagged"></div>
     <div id="mods-catalogue" class="note">Looking…</div>
     <div id="mods-detail" class="moddetail" hidden></div>
     <!-- Two sentences, and true of the registry as it is: every entry is a
@@ -683,6 +777,13 @@
        author's repository without review. A mod can change your server's rules and run
        code in your game window, so install the ones you want.</p>
   </div>
+  </div>
+  <!-- What Apply is waiting for, or what it left to do. -->
+  <div class="applybar" id="mods-status">
+    <div class="what" role="status" aria-live="polite"><b id="mods-status-text">Everything is applied.</b><small id="mods-status-detail"></small></div>
+    <button id="mods-discard" class="ghost" hidden title="Puts switches and options back as they were applied">Discard</button>
+    <button id="mods-reopen" hidden>Reopen game</button>
+    <button id="mods-apply" class="ghost">Apply &amp; restart server</button>
   </div>
   </div>
 
@@ -753,6 +854,12 @@
       </label>
     </div>
     <label style="margin-top:6px">
+      <span>Weapon rules</span>
+      <input type="checkbox" id="population_skill_weapon_check" style="accent-color: var(--accent); flex: none" />
+      <span class="val" style="width:auto; color: var(--dim)">companions need the right weapon for a skill, like you do</span>
+    </label>
+    <p class="note" id="weapon-check-note"></p>
+    <label style="margin-top:6px">
       <span>Server memory</span>
       <input type="range" id="vm_ram_mib" min="2048" max="16384" step="1024">
       <span class="val" id="v-vm_ram_mib"></span>
@@ -774,7 +881,11 @@
        any time. <i>Hired</i> makes a companion something you pay for: only jobs of your
        own class tier, at your level, for the fee per level and/or the item set here,
        either from the panel or from a Companion Recruiter standing beside each town's
-       healer. Calling back a companion you already have is always free.</p>
+       healer. Calling back a companion you already have is always free.
+       <b>Weapon rules</b> is a choice between realism and convenience. Off (the default),
+       companions and other fake players use every skill they have whatever they are
+       holding. On, they follow the same weapon rules you do, and a skill their weapon
+       can't use is skipped until you trade them a weapon that can.</p>
     <p class="note" id="ram-note"></p>
   </div>
 
@@ -1424,6 +1535,18 @@ function refreshPopulation() {
   const hired = $('population_companion_hire').value !== 'free';
   $('population_companion_hire').disabled = !on;
   $('companion-fee').hidden = !hired;
+  $('population_skill_weapon_check').disabled = !on;
+  // The trade-off spelled out where the box is ticked: what turning it on
+  // costs, and how to get the skills back.
+  $('weapon-check-note').textContent = $('population_skill_weapon_check').checked
+    ? 'On: a companion only uses skills its weapon allows, as a player would. Some '
+      + 'start with gear that does not fit every skill: Clowns, Minstrels and Troubadours '
+      + 'start with a bow and need an instrument to sing, and Gypsies, Wanderers and '
+      + 'Trouveres a whip to dance; Spear Quicken needs a spear, Double Strafe a bow. '
+      + 'Trade the companion the weapon and it puts it on. '
+      + 'Arrows, gemstones and other items are still never needed.'
+    : 'Off: companions use every skill they have, whatever weapon they hold. A Minstrel '
+      + 'sings with a bow in hand. Easier, but not how the game works for you.';
   const perLevel = Number($('population_companion_fee_zeny').value) || 0;
   $('v-population_companion_fee_zeny').textContent = perLevel
     ? `zeny; a level 50 companion costs ${(perLevel * 50).toLocaleString()}` : 'no zeny';
@@ -1478,6 +1601,7 @@ $('population_density').addEventListener('input', refreshPopulation);
 $('population_companion_limit').addEventListener('input', refreshPopulation);
 for (const area of POPULATION_AREAS) $(`population_${area}_pct`).addEventListener('input', refreshPopulation);
 $('population_companion_hire').addEventListener('change', refreshPopulation);
+$('population_skill_weapon_check').addEventListener('change', refreshPopulation);
 $('population_companion_fee_zeny').addEventListener('input', refreshPopulation);
 $('vm_ram_mib').addEventListener('input', refreshPopulation);
 
@@ -1492,6 +1616,7 @@ $('save-population').onclick = async () => {
   settings.population_companion_fee_zeny = Number($('population_companion_fee_zeny').value) || 0;
   settings.population_companion_fee_item = Number($('population_companion_fee_item').value) || 0;
   settings.population_companion_fee_item_amount = Number($('population_companion_fee_item_amount').value) || 0;
+  settings.population_skill_weapon_check = $('population_skill_weapon_check').checked;
   // Machine-level, so it lives in client.json beside the client paths and the
   // LAN switch rather than in settings.json. Written first: save_settings
   // restarts the stack, which is what makes the new ceiling take effect.
@@ -1521,8 +1646,8 @@ $('report').onclick = () =>
   withButton('report', 'Collecting…', 'Report a problem…',
              () => invoke('report_issue'));
 
-// Mods. Checkboxes are written on Apply rather than on each click, so a player
-// can turn several on and pay for one restart.
+// Mods. Switches and options are written on Apply rather than on each click,
+// so a player can change several and pay for one restart.
 let modState = {};
 // Per-mod option values, and what they were when the list was drawn, so Apply
 // only rebuilds the asset overlay for mods whose options actually moved.
@@ -1532,30 +1657,69 @@ let modSettings = {}, modSettingsBaseline = {};
 // there is no "reopen the game" to say). See mods-state.js for the rules.
 let modsBaseline = null, modsListed = [], modsAppliedAt = null, gameNow = null;
 let modsAnswered = false;   // a list_mods answer has arrived at least once
+// Mods whose files an Update or a reinstall replaced since the last Apply:
+// the running server still has the old copy.
+const modsUpdated = new Set();
+// Which mods reach the game window ({ name: true|false|null }), kept for a
+// mod removed since, so Apply can still tell whether the game needs reopening.
+let modsClient = {};
+// The last Apply changed nothing the game window loads: say so, once.
+let modsAppliedQuietly = false;
+// Rows the player opened, kept across a redraw.
+const modsOpen = new Set();
+// Host routes by mod name (docs/MODDING.md, "Host routes"), from the last listing.
+let modsHost = {};
+
+const isInstalled = name => modsListed.some(m => m.name === name);
 
 function modsPending() {
   return ModsState.pending({
     baseline: modsBaseline, checked: modState, present: modsListed.map(m => m.name),
-    settings: modSettings, settingsBaseline: modSettingsBaseline,
+    settings: modSettings, settingsBaseline: modSettingsBaseline, updated: [...modsUpdated],
   });
 }
 
-// The header's status line and Apply's emphasis, both from modsPending().
+// The bar at the bottom of Mods, Apply's emphasis and every row's badges, all
+// from modsPending().
 let reopening = false;
 function paintModsStatus() {
   const changes = modsPending();
   const notice = ModsState.appliedNotice(modsAppliedAt, gameNow);
   if (!notice) { modsAppliedAt = null; reopening = false; }
+  if (changes.length) modsAppliedQuietly = false;
   $('mods-apply').classList.toggle('ghost', !changes.length);
-  const status = $('mods-status');
-  const text = changes.length ? ModsState.pendingText(changes) : notice ? notice.text : '';
-  status.hidden = !text;
-  status.classList.toggle('warn', !!changes.length);
+  const bar = $('mods-status');
+  bar.classList.toggle('warn', !!changes.length);
+  let text, detail = '';
+  if (changes.length) {
+    text = ModsState.pendingText(changes);
+    detail = ModsState.pendingDetail(changes) + ' — '
+      + (ModsState.needsReopen(changes, modsClient)
+        ? 'restarts the server; the game will need reopening too.'
+        : 'restarts the server, so log in again; the game does not need reopening.');
+  } else if (notice) {
+    text = notice.text;
+  } else if (modsAppliedQuietly) {
+    text = 'Mods applied. The server restarted: log in again; the game does not need reopening.';
+  } else {
+    text = 'Everything is applied.';
+  }
   $('mods-status-text').textContent = text;
+  $('mods-status-detail').textContent = detail;
+  // Discard puts back what only lives in this window: switches and options.
+  // An install, a removal or an update has already changed the files.
+  // Only when a switch or an option on screen differs from what is saved: an
+  // install switches its mod on in the files itself, and after a failed Apply
+  // the switches are already written, and Discard could put back neither.
+  const saved = name => modsListed.find(m => m.name === name);
+  const undoable = Object.entries(modState).some(([name, on]) => saved(name) && saved(name).enabled !== on)
+    || Object.entries(modSettings).some(([name, values]) => JSON.stringify(values) !== modSettingsBaseline[name]);
+  $('mods-discard').hidden = !undoable;
   const reopen = $('mods-reopen');
   reopen.hidden = !!changes.length || !notice;
   if (notice && !reopening) { reopen.textContent = notice.button; reopen.disabled = false; }
   watchGame(!!notice);
+  paintModBadges(changes);
 }
 
 // While there is a "reopen the game" line, ask now and then whether the game
@@ -1583,170 +1747,343 @@ $('mods-reopen').onclick = async () => {
   setTimeout(() => { reopening = false; paintModsStatus(); }, 15000);
 };
 
+// Back to what was applied: the listing holds the saved switches and options,
+// and nothing here is written before Apply.
+$('mods-discard').onclick = () => {
+  modState = {};
+  modSettings = {};
+  renderModList();
+  log('');
+};
+
 async function refreshMods() {
   let mods = [];
   let answered = false;
   try { mods = await invoke('list_mods'); answered = true; } catch (e) { /* stack may be down */ }
+  // Whether the host has switched each host route on. Absent from an older shell.
+  const hostRoutes = {};
+  if (answered) {
+    try { for (const h of await invoke('mod_host_list')) hostRoutes[h.name] = h; } catch (e) { /* none, or none readable */ }
+  }
   // Only a real answer moves what Apply is compared against: an empty list
   // from a supervisor that did not answer is not every mod being removed.
   if (answered) {
     modsAnswered = true;
     modsListed = mods;
+    modsHost = hostRoutes;
     modsBaseline = ModsState.adopt(modsBaseline, mods);
+    for (const m of mods) modsClient[m.name] = m.clientSide;
   }
-  const box = $('mods-list');
-  if (!mods.length) {
-    box.textContent = 'No mods installed. Open the mods folder to add one.';
+  renderModList();
+}
+
+// The update state of one installed mod, as the lookup last answered.
+const modUpdate = name => {
+  const u = modUpdates[name];
+  return u && u.update && !u.error && u.listed !== false ? u : null;
+};
+
+// Badges after a mod's name: what it is, and what is waiting on it. Redrawn on
+// every change, so "Not applied" follows the switches.
+function modBadges(m, pendingNames) {
+  const out = [];
+  const add = (text, kind = '', title = '') => {
+    const pill = el('span', ('pill ' + kind).trim(), text);
+    if (title) pill.title = title;
+    out.push(pill);
+  };
+  if (m.bundled) add('Included', '', 'Comes with the app');
+  const kindLabel = { skin: 'UI skin', cursor: 'Cursor pack' }[m.kind];
+  if (kindLabel) add(kindLabel, '', 'One at a time');
+  if (m.source) add('GitHub', 'gh', `From github.com/${m.source.repo}`);
+  const u = modUpdate(m.name);
+  if (u) add(`Update ${u.installed} → ${u.latest}`, 'upd');
+  if (m.refused) add('Not loaded', 'bad');
+  else if (Array.isArray(m.problems) && m.problems.length) add('Problem', 'bad');
+  const host = modsHost[m.name];
+  if (host && !m.refused) add(host.error ? 'Host service cannot run' : `Host service ${host.allowed ? 'on' : 'off'}`, host.allowed && !host.error ? 'ok' : '');
+  if (pendingNames.has(m.name)) add('Not applied', 'pend', 'Waiting for Apply');
+  return out;
+}
+
+function paintModBadges(changes = modsPending()) {
+  const pendingNames = new Set(changes.map(c => c.name));
+  for (const row of $('mods-list').querySelectorAll('.mrow')) {
+    const m = modsListed.find(x => x.name === row.dataset.mod);
+    if (!m) continue;
+    row.querySelector('.badges').replaceChildren(...modBadges(m, pendingNames));
+    row.classList.toggle('off', !m.refused && !modState[m.name]);
+  }
+}
+
+// A letter tile the size of a mod's picture, so every row's text starts in
+// the same place. Installed mods carry no picture of their own.
+function letterTile(name) {
+  const tile = el('div', 'modicon', (name.match(/[a-z0-9]/i) || ['?'])[0]);
+  tile.setAttribute('aria-hidden', 'true');
+  return tile;
+}
+
+// The update line inside an open row: waiting, failed, or up to date.
+function updateLine(m) {
+  const u = modUpdates[m.name];
+  if (!u) return null;
+  const line = el('div', 'mline');
+  if (u.error) {
+    line.classList.add('dim');
+    line.textContent = 'Could not check for updates: ' + u.error;
+  } else if (u.listed === false) {
+    line.classList.add('dim');
+    line.textContent = 'No longer in the mod list, so updates are not offered.';
+  } else if (u.update) {
+    line.classList.add('warn');
+    line.textContent = `Update available (${u.installed} → ${u.latest})`;
+    const button = el('button', '', updateLabel(u));
+    button.type = 'button';
+    button.onclick = () => installMod({ name: m.name }, button);
+    line.append(button);
+  } else if (u.needsApp) {
+    line.classList.add('dim');
+    line.textContent = `Version ${u.latest} is in the mod list, but it ${u.needsApp}.`;
+  } else {
+    line.classList.add('dim');
+    line.textContent = 'Up to date.';
+  }
+  if (u.url) {
+    line.append(' ');
+    line.append(outLink(u.url, { call: 'open_release_notes' }, 'Release notes'));
+  }
+  return line;
+}
+
+// One installed mod: the switch, then a button that opens the rest of it.
+// Built with DOM calls and textContent throughout: a name, a description and
+// a label come out of somebody's mod.json, and nothing about a mod folder is
+// trusted markup.
+function modRow(m, kindBoxes, pendingNames) {
+  const row = el('div', 'mrow');
+  row.dataset.mod = m.name;
+  const open = modsOpen.has(m.name);
+  row.classList.toggle('open', open);
+
+  const main = el('div', 'mrow-main');
+  const sw = el('label', 'sw');
+  const cb = el('input');
+  cb.type = 'checkbox';
+  // A refused mod is not a mod the player can turn on, so its switch is
+  // greyed out rather than pretending; the row says why.
+  cb.checked = !m.refused && !!modState[m.name];
+  cb.disabled = m.refused;
+  cb.setAttribute('aria-label', `${m.name} on`);
+  sw.title = m.refused ? 'Not loaded' : 'On or off, at the next Apply';
+  sw.append(cb, el('span'));
+  cb.onchange = () => {
+    modState[m.name] = cb.checked;
+    // Skins and cursor packs are a choice of one: switching one on switches
+    // the others of its kind off, as the supervisor will when it is applied.
+    if (cb.checked && m.kind) {
+      for (const [other, otherBox] of kindBoxes[m.kind] || []) {
+        if (other !== m.name && otherBox.checked) { otherBox.checked = false; modState[other] = false; }
+      }
+    }
     paintModsStatus();
-    paintUpdateCount();
+  };
+  if (m.kind && !m.refused) (kindBoxes[m.kind] = kindBoxes[m.kind] || []).push([m.name, cb]);
+
+  const hit = el('button', 'mrow-hit');
+  hit.type = 'button';
+  hit.setAttribute('aria-expanded', String(open));
+  const text = el('div');
+  text.style.minWidth = '0';
+  const head = el('div', 'mhead');
+  head.append(el('span', 'mname', m.name));
+  if (m.version) head.append(el('span', 'modver', 'v' + m.version.replace(/^v/i, '')));
+  const badges = el('span', 'mhead badges');
+  badges.append(...modBadges(m, pendingNames));
+  head.append(badges);
+  text.append(head, el('div', 'mone', m.refused ? 'Not loaded — ' + m.reason : (m.description || '')));
+  hit.append(letterTile(m.name), text);
+  main.append(sw, hit);
+
+  const more = el('div', 'mrow-more');
+  more.hidden = !open;
+  more.id = 'mod-more-' + m.name;
+  hit.setAttribute('aria-controls', more.id);
+  hit.onclick = () => {
+    const now = more.hidden;
+    more.hidden = !now;
+    row.classList.toggle('open', now);
+    hit.setAttribute('aria-expanded', String(now));
+    if (now) modsOpen.add(m.name); else modsOpen.delete(m.name);
+  };
+
+  if (m.description) more.append(el('p', 'moddesc', m.description));
+  const meta = [m.author && 'by ' + m.author,
+    // Where a mod installed from its author's own repository came from. Its
+    // updates are published there, not reviewed here, so say whose.
+    m.source && `from github.com/${m.source.repo}, release ${m.source.tag}`].filter(Boolean).join(' · ');
+  if (meta) more.append(el('div', 'mmeta', meta));
+  // Not from the mod's own description: a mod that changes what commands
+  // players may use should say so in text the mod did not write.
+  if (m.grantsCommands) more.append(el('div', 'mline dim', 'Changes which commands players can use.'));
+  if (m.refused) more.append(el('div', 'mline bad', 'Not loaded — ' + m.reason));
+  // The server's own words about this mod's tables, from the last start.
+  // Separate from `refused`: the mod is on and the rest of it is working,
+  // so this is a warning about one layer rather than a refusal.
+  for (const p of (!m.refused && Array.isArray(m.problems) ? m.problems : [])) {
+    more.append(el('div', 'mline warn', 'Server could not read part of this mod — ' + p));
+  }
+  const upd = updateLine(m);
+  if (upd) more.append(upd);
+
+  // A host route runs the mod's own code on this machine, reachable by
+  // invited friends, and may connect to the listed addresses. Said in the
+  // app's words, from the validated mod.json, and off until switched on
+  // here; it takes effect at once, without Apply.
+  const hostRoute = modsHost[m.name];
+  if (hostRoute && !m.refused) {
+    const box = el('div', 'mbox host');
+    box.append(el('h4', '', 'Host service'));
+    if (hostRoute.error) {
+      box.append(el('div', 'mline warn', 'Its host service cannot run — ' + hostRoute.error));
+    } else {
+      const line = el('label', 'mopt hostroute');
+      const caption = el('span', '', 'Runs a host service on this computer that friends you invite can use'
+        + (hostRoute.connect.length ? ', and that may connect to: ' + hostRoute.connect.join(', ') : '. It cannot connect anywhere.')
+        + (m.enabled ? '' : ' (only while the mod is on)'));
+      const hsw = el('span', 'sw');
+      const allow = el('input');
+      allow.type = 'checkbox'; allow.checked = !!hostRoute.allowed;
+      allow.setAttribute('aria-label', `Allow ${m.name}'s host service`);
+      hsw.append(allow, el('span'));
+      allow.onchange = async () => {
+        allow.disabled = true;
+        try {
+          await invoke('mod_host_set', { name: m.name, enabled: allow.checked });
+          hostRoute.allowed = allow.checked;
+          log(`${m.name}: host service ${allow.checked ? 'allowed' : 'switched off'}.`);
+          paintModBadges();
+        } catch (e) { allow.checked = !allow.checked; log('error: ' + e); }
+        allow.disabled = false;
+      };
+      line.append(caption, hsw);
+      box.append(line, el('div', 'mline dim', 'Takes effect at once. No Apply needed.'));
+    }
+    more.append(box);
+  }
+
+  // Options the mod declared for itself. A mod with a settings page of its
+  // own lays its options out there, so they are not drawn here as well: two
+  // editors for the same values would disagree the moment either one saved.
+  if (m.settingsPage && !m.refused) {
+    const box = el('div', 'mbox');
+    box.append(el('h4', '', 'Options'));
+    const open = el('button', 'ghost', 'Settings…');
+    open.type = 'button';
+    open.style.justifySelf = 'start';
+    open.onclick = async () => {
+      try { log(await invoke('open_mod_settings', { name: m.name })); }
+      catch (e) { log('error: ' + e); }
+    };
+    box.append(open);
+    more.append(box);
+  }
+  if (!m.refused && !m.settingsPage && Array.isArray(m.settings) && m.settings.length) {
+    const saved = {};
+    const values = {};
+    const kept = modSettings[m.name] || {};
+    const box = el('div', 'mbox');
+    box.append(el('h4', '', 'Options'));
+    for (const setting of m.settings) {
+      saved[setting.key] = setting.value;
+      values[setting.key] = Object.hasOwn(kept, setting.key) ? kept[setting.key] : setting.value;
+      const line = el('label', 'mopt');
+      let input = el('input');
+      let control = input;
+      if (setting.type === 'boolean') {
+        input.type = 'checkbox';
+        input.checked = values[setting.key] === true;
+        control = el('span', 'sw');
+        control.append(input, el('span'));
+        input.onchange = () => { values[setting.key] = input.checked; paintModsStatus(); };
+      } else if (setting.type === 'number') {
+        input.type = 'number';
+        input.value = String(values[setting.key] ?? 0);
+        if (setting.min !== undefined) input.min = String(setting.min);
+        if (setting.max !== undefined) input.max = String(setting.max);
+        input.onchange = () => { values[setting.key] = Number(input.value); paintModsStatus(); };
+      } else {
+        input.type = 'text';
+        input.value = String(values[setting.key] ?? '');
+        if (setting.maxLength) input.maxLength = setting.maxLength;
+        input.onchange = () => { values[setting.key] = input.value; paintModsStatus(); };
+      }
+      line.append(el('span', '', setting.label || setting.key), control);
+      if (setting.description) line.append(el('span', 'hint', setting.description));
+      box.append(line);
+    }
+    modSettings[m.name] = values;
+    modSettingsBaseline[m.name] = JSON.stringify(saved);
+    more.append(box);
+  }
+
+  const actions = el('div', 'mactions');
+  // Only what the player installed: a mod that ships with the app lives in
+  // the app itself and can only be switched off.
+  if (!m.bundled) {
+    const remove = el('button', 'danger', 'Remove…');
+    remove.type = 'button';
+    remove.onclick = async () => {
+      remove.disabled = true;
+      try { log(await invoke('remove_mod', { name: m.name })); }
+      catch (e) { log('error: ' + e); }
+      await refreshMods();
+    };
+    actions.append(remove);
+  } else {
+    actions.append(el('p', 'note', 'Comes with the app: it can be switched off, not removed.'));
+  }
+  more.append(actions);
+
+  row.append(main, more);
+  return row;
+}
+
+// The Installed list, from the last listing. A switch or an option the
+// player changed and has not applied yet is kept across a redraw -- an
+// install, an update lookup -- and only Discard or Apply lets it go.
+function renderModList() {
+  const box = $('mods-list');
+  const keep = modState;
+  modState = {};
+  modSettingsBaseline = {};
+  box.innerHTML = '';
+  if (!modsListed.length) {
+    box.textContent = 'No mods installed. Find one in Find Mods, or open the mods folder to add one.';
+    paintUpdates();
+    paintModsStatus();
     return;
   }
-  modState = {};
-  modSettings = {}; modSettingsBaseline = {};
-  updateSlots = {};
-  box.innerHTML = '';
-  // Skins and cursor packs are a choice of one: ticking one unticks the
-  // others of its kind, as the supervisor will when it is applied.
-  const kindBoxes = {};
-  for (const m of mods) {
-    // A refused mod is not a mod the player can turn on, so it does not get a
-    // checkbox that lies about being able to. It stays in the list, next to
-    // the ones that loaded, with the reason it did not.
-    if (!m.refused) modState[m.name] = m.enabled;
-    const row = document.createElement('label');
-    row.style.cssText = 'display:flex; align-items:flex-start; gap:10px; padding:4px 0';
-    const cb = document.createElement('input');
-    cb.type = 'checkbox'; cb.checked = m.enabled; cb.disabled = m.refused;
-    cb.style.cssText = 'accent-color: var(--accent); flex:none; margin-top:2px';
-    cb.onchange = () => {
-      modState[m.name] = cb.checked;
-      if (cb.checked && m.kind) {
-        for (const [other, otherBox] of kindBoxes[m.kind] || []) {
-          if (other !== m.name && otherBox.checked) { otherBox.checked = false; modState[other] = false; }
-        }
-      }
-      paintModsStatus();
-    };
-    if (m.kind && !m.refused) (kindBoxes[m.kind] = kindBoxes[m.kind] || []).push([m.name, cb]);
-    const text = document.createElement('span');
-    const kindLabel = { skin: 'UI skin', cursor: 'cursor pack' }[m.kind];
-    const by = [m.version && 'v' + m.version, m.author && 'by ' + m.author]
-      .filter(Boolean).join(' ');
-    text.innerHTML = `<b>${esc(m.name)}</b>`
-      + (m.bundled ? ' <span style="color:var(--dim); font-size:11px">included</span>' : '')
-      + (kindLabel ? ` <span style="color:var(--dim); font-size:11px">${kindLabel} · one at a time</span>` : '')
-      + (by ? ` <span style="color:var(--dim); font-size:11px">${esc(by)}</span>` : '')
-      + (m.description ? `<br><span style="color:var(--dim)">${esc(m.description)}</span>` : '')
-      // Not from the mod's own description: a mod that changes what commands
-      // players may use should say so in text the mod did not write.
-      + (m.grantsCommands
-        ? '<br><span style="color:var(--dim)">Changes which commands players can use.</span>'
-        : '')
-      // Where a mod installed from its author's own repository came from.
-      // Its updates are published there, not reviewed here, so say whose.
-      + (m.source
-        ? `<br><span style="color:var(--dim); font-size:11px">From github.com/${esc(m.source.repo)}, release ${esc(m.source.tag)}</span>`
-        : '')
-      + (m.refused
-        ? `<br><span style="color:var(--bad, #e5534b)">Not loaded — ${esc(m.reason)}</span>`
-        : '')
-      // The server's own words about this mod's tables, from the last start.
-      // Separate from `refused`: the mod is on and the rest of it is working,
-      // so this is a warning about one layer rather than a refusal.
-      + ((!m.refused && Array.isArray(m.problems) ? m.problems : [])
-        .map(p => `<br><span style="color:var(--warn, #d98)">Server could not read part of this mod — ${esc(p)}</span>`)
-        .join(''));
-    row.append(cb, text);
-    if (m.source) {
-      // Filled in by paintUpdates once a release lookup has answered.
-      const slot = document.createElement('span');
-      slot.style.cssText = 'display:block';
-      text.append(slot);
-      updateSlots[m.name] = slot;
-    }
-    // Only what the player installed: a mod that ships with the app lives in
-    // the app itself and can only be switched off.
-    if (!m.bundled) {
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.className = 'ghost';
-      remove.textContent = 'Remove';
-      remove.style.cssText = 'margin-left:auto; flex:none; font-size:11px; padding:2px 8px';
-      remove.onclick = async event => {
-        // Inside the row's <label>: without this the click would also
-        // toggle the mod's checkbox.
-        event.preventDefault();
-        remove.disabled = true;
-        try { log(await invoke('remove_mod', { name: m.name })); }
-        catch (e) { log('error: ' + e); }
-        await refreshMods();
-      };
-      row.append(remove);
-    }
-    box.append(row);
-    // Options the mod declared for itself. Built with DOM calls and
-    // textContent: a label and a description come out of somebody's mod.json,
-    // and nothing about a mod folder is trusted markup.
-    //
-    // A mod with a settings page of its own lays its options out there, so
-    // they are not drawn here as well: two editors for the same values would
-    // disagree the moment either one saved.
-    if (m.settingsPage && !m.refused) {
-      const open = document.createElement('button');
-      open.type = 'button';
-      open.className = 'ghost';
-      open.textContent = 'Settings…';
-      open.style.cssText = 'margin:2px 0 8px 28px; font-size:12px; padding:2px 10px; display:block';
-      open.onclick = async () => {
-        try { log(await invoke('open_mod_settings', { name: m.name })); }
-        catch (e) { log('error: ' + e); }
-      };
-      box.append(open);
-    }
-    if (!m.refused && !m.settingsPage && Array.isArray(m.settings) && m.settings.length) {
-      const values = {};
-      const options = document.createElement('div');
-      options.style.cssText = 'margin:2px 0 8px 28px; display:flex; flex-direction:column; gap:6px';
-      for (const setting of m.settings) {
-        values[setting.key] = setting.value;
-        const line = document.createElement('label');
-        line.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12px; min-height:0';
-        const input = document.createElement('input');
-        if (setting.type === 'boolean') {
-          input.type = 'checkbox';
-          input.checked = setting.value === true;
-          input.style.cssText = 'accent-color: var(--accent); flex:none';
-          input.onchange = () => { values[setting.key] = input.checked; paintModsStatus(); };
-        } else if (setting.type === 'number') {
-          input.type = 'number';
-          input.value = String(setting.value ?? 0);
-          if (setting.min !== undefined) input.min = String(setting.min);
-          if (setting.max !== undefined) input.max = String(setting.max);
-          input.style.cssText = 'width:96px; flex:none';
-          input.onchange = () => { values[setting.key] = Number(input.value); paintModsStatus(); };
-        } else {
-          input.type = 'text';
-          input.value = String(setting.value ?? '');
-          if (setting.maxLength) input.maxLength = setting.maxLength;
-          input.style.cssText = 'flex:1 1 auto; min-width:0';
-          input.onchange = () => { values[setting.key] = input.value; paintModsStatus(); };
-        }
-        const caption = document.createElement('span');
-        caption.textContent = setting.label || setting.key;
-        line.append(input, caption);
-        options.append(line);
-        if (setting.description) {
-          const hint = document.createElement('span');
-          hint.textContent = setting.description;
-          hint.style.cssText = 'color:var(--dim); font-size:11px; margin-left:26px';
-          options.append(hint);
-        }
-      }
-      modSettings[m.name] = values;
-      modSettingsBaseline[m.name] = JSON.stringify(values);
-      box.append(options);
-    }
+  for (const m of modsListed) {
+    if (!m.refused) modState[m.name] = Object.hasOwn(keep, m.name) ? keep[m.name] : m.enabled;
   }
+  const pendingNames = new Set(modsPending().map(c => c.name));
+  const attention = m => m.refused || (Array.isArray(m.problems) && m.problems.length)
+    || !!modUpdate(m.name) || !!(modsHost[m.name] && modsHost[m.name].error);
+  const groups = [
+    ['Needs attention', modsListed.filter(attention)],
+    ['Installed by you', modsListed.filter(m => !attention(m) && !m.bundled)],
+    ['Included with the app', modsListed.filter(m => !attention(m) && m.bundled)],
+  ];
+  const kindBoxes = {};
+  for (const [title, mods] of groups) {
+    if (!mods.length) continue;
+    box.append(el('div', 'mgroup', `${title} · ${mods.length}`));
+    for (const m of mods) box.append(modRow(m, kindBoxes, pendingNames));
+  }
+  // Options without a box on screen now -- the mod is gone, or an update gave
+  // it a settings page -- are not a change to apply.
+  modSettings = ModsState.keptOptions(modSettings, modSettingsBaseline);
   paintUpdates();
   paintModsStatus();
 }
@@ -1755,101 +2092,108 @@ async function refreshMods() {
 // when this window opens (for the number on the Mods tab), when the Mods tab
 // opens and when asked -- never in the background -- and only ever offered:
 // the player clicks Update, sees the release, and confirms.
-let updateSlots = {};
 let modUpdates = {};
 let checkingUpdates = null;
+let modsCheckedAt = null;
 
-// The red number on Mods, Mods and Find Mods. Repainted with the update
-// lines, so an Update that went through takes it down without a new lookup.
+// The red number on Mods and on Updates. Repainted with the update list, so
+// an Update that went through takes it down without a new lookup.
 function paintUpdateCount() {
   const n = ModsState.updateCount(modUpdates, modsAnswered ? modsListed.map(m => m.name) : null);
   const label = ModsState.updateCountLabel(n);
-  for (const id of ['tab-mods', 'modstab-installed', 'modstab-find']) {
+  for (const id of ['tab-mods', 'modstab-updates']) {
     const tab = $(id);
     const count = tab.querySelector('.tabcount');
     count.textContent = n > 9 ? '9+' : String(n);
     count.hidden = n === 0;
     // The number itself is aria-hidden; the tab's name says it in words.
-    const name = id === 'modstab-find' ? 'Find Mods' : 'Mods';
+    const name = id === 'modstab-updates' ? 'Updates' : 'Mods';
     if (n) tab.setAttribute('aria-label', `${name}, ${label}`);
     else tab.removeAttribute('aria-label');
   }
 }
 
+// The Updates list: every installed mod with a newer release, then any the
+// lookup could not answer for.
 function paintUpdates() {
   paintUpdateCount();
-  for (const [name, slot] of Object.entries(updateSlots)) {
-    slot.innerHTML = '';
-    const u = modUpdates[name];
-    if (!u) continue;
-    const line = document.createElement('span');
-    line.style.cssText = 'font-size:11px';
-    if (u.error) {
-      line.style.color = 'var(--dim)';
-      line.textContent = 'Could not check for updates: ' + u.error;
-    } else if (u.listed === false) {
-      line.style.color = 'var(--dim)';
-      line.textContent = 'No longer in the mod list, so updates are not offered.';
-    } else if (u.update) {
-      line.style.color = 'var(--warn, #d98)';
-      line.textContent = `Update available (${u.installed} → ${u.latest}) `;
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'ghost';
-      button.textContent = 'Update…';
-      button.style.cssText = 'font-size:11px; padding:1px 8px; margin-left:4px';
-      button.onclick = async event => {
-        // Inside the row's <label>, like Remove.
-        event.preventDefault();
-        await installMod({ name }, button);
-      };
-      line.append(button);
-    } else {
-      line.style.color = 'var(--dim)';
-      line.textContent = 'Up to date. ';
-    }
-    if (u.url) {
-      const notes = document.createElement('a');
-      notes.href = '#';
-      notes.textContent = 'Release notes';
-      notes.style.cssText = 'margin-left:6px; color:inherit';
-      notes.onclick = event => {
-        event.preventDefault();
-        invoke('open_release_notes', { url: u.url }).catch(e => log('error: ' + e));
-      };
-      line.append(notes);
-    }
-    slot.append(line);
+  const box = $('mods-update-list');
+  box.innerHTML = '';
+  box.className = '';
+  // Every installed mod the check answered for: from GitHub, or from the
+  // mod list itself.
+  const checked = modsListed.filter(m => modUpdates[m.name]);
+  if (modsCheckedAt) {
+    $('mods-checked').textContent = `Mods from the mod list and from GitHub. Last checked ${modsCheckedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`;
+  }
+  const waiting = modsListed.filter(m => modUpdate(m.name));
+  for (const m of waiting) {
+    const u = modUpdates[m.name];
+    const row = el('div', 'updrow');
+    const text = el('div');
+    text.style.minWidth = '0';
+    const head = el('div', 'mhead');
+    head.append(el('span', 'mname', m.name), el('span', 'pill upd', `${u.installed} → ${u.latest}`));
+    text.append(head, el('div', 'mone', m.source ? `from github.com/${m.source.repo}` : 'from the mod list'));
+    const acts = el('div', 'acts');
+    const button = el('button', '', updateLabel(u));
+    button.type = 'button';
+    button.onclick = () => installMod({ name: m.name }, button);
+    acts.append(button);
+    if (u.url) acts.append(outLink(u.url, { call: 'open_release_notes' }, 'Release notes'));
+    row.append(letterTile(m.name), text, acts);
+    box.append(row);
+  }
+  const failed = checked.filter(m => modUpdates[m.name].error);
+  for (const m of failed) box.append(el('div', 'mline dim', `${m.name}: could not check for updates — ${modUpdates[m.name].error}`));
+  for (const m of checked.filter(m => modUpdates[m.name].needsApp)) {
+    const u = modUpdates[m.name];
+    box.append(el('div', 'mline dim', `${m.name}: version ${u.latest} ${u.needsApp}.`));
+  }
+  if (!waiting.length) {
+    box.prepend(el('p', 'note', checkingUpdates ? 'Checking…'
+      : !modsCheckedAt ? 'Not checked yet.'
+      : checked.length ? 'Every mod is up to date.' : 'None of your mods comes from the mod list or GitHub.'));
   }
 }
+
+// A release from GitHub is shown and confirmed before it replaces anything
+// (the dots say so); a mod from the list installs straight away.
+const updateLabel = u => (u && u.registry ? 'Update' : 'Update…');
 
 async function checkModUpdates(fresh = false) {
   if (checkingUpdates) return checkingUpdates;
   checkingUpdates = (async () => {
-    try {
-      const results = await invoke('check_mod_updates', { fresh });
-      modUpdates = {};
-      for (const u of results) modUpdates[u.name] = u;
-      paintUpdates();
-      // Find Mods labels a mod with an update waiting "Update…".
-      if (catalogue) paintCatalogue();
-      const waiting = results.filter(u => u.update).length;
-      return results.length
-        ? (waiting ? `${waiting} mod update${waiting === 1 ? '' : 's'} available.` : 'Mods from GitHub are up to date.')
-        : 'No mods installed from GitHub.';
-    } finally {
-      checkingUpdates = null;
-    }
+    let results;
+    // Done before anything is drawn, so the list never shows "Checking…"
+    // next to the time of a check that has finished.
+    try { results = await invoke('check_mod_updates', { fresh }); }
+    finally { checkingUpdates = null; }
+    modUpdates = {};
+    for (const u of results) modUpdates[u.name] = u;
+    modsCheckedAt = new Date();
+    // A mod with an update moves to "Needs attention", and Find Mods
+    // labels it "Update".
+    if (modsAnswered) renderModList(); else paintUpdates();
+    if (catalogue) paintCatalogue();
   })();
+  paintUpdates();
   return checkingUpdates;
 }
 
 // A real refresh: the mod list itself again (a mod added since this window
 // opened shows up), then every installed mod's latest release.
-$('mods-updates').onclick = () => withButton('mods-updates', 'Checking…', 'Check for updates', async () => {
-  await loadCatalogue({ fresh: true });
-  return checkModUpdates(true);
-});
+// The list says what came of it, so nothing goes to the log line under the
+// bar except a failure.
+$('mods-updates').onclick = async () => {
+  const button = $('mods-updates');
+  button.disabled = true; button.textContent = 'Checking…';
+  try {
+    await loadCatalogue({ fresh: true });
+    await checkModUpdates(true);
+  } catch (e) { log('error: ' + e); }
+  button.disabled = false; button.textContent = 'Check for updates';
+};
 
 // Tabs. Every panel stays in the DOM and is only hidden, so nothing here has
 // to care which section an element lives in -- the rest of this file still
@@ -2056,19 +2400,40 @@ function sourceLinks(mod) {
 // available is #223's check, so it is only ever as fresh as that.
 function modStatus(mod, head, body) {
   const update = modUpdates[mod.name];
-  const installed = Object.hasOwn(modState, mod.name) || Object.hasOwn(updateSlots, mod.name);
-  if (installed) head.append(el('span', 'modinstalled', 'Installed'));
+  const installed = isInstalled(mod.name);
+  if (installed) head.append(el('span', 'pill ok', '✓ Installed'));
   if (update && update.update) {
     body.append(el('div', 'modupdate', `Update available: ${update.installed} → ${update.latest}`));
   }
   return { installed, update: !!(update && update.update) };
 }
 
+// Install, Update…, or for a mod already installed, Manage: its row in
+// Installed, where its switch and options are.
 function actionButton(mod, state) {
-  const button = el('button', state.update ? '' : state.installed ? 'ghost again' : 'ghost', installLabel(mod));
+  if (state.installed && !state.update) {
+    const manage = el('button', 'ghost again', 'Manage');
+    manage.type = 'button';
+    manage.title = 'Open it in Installed';
+    manage.onclick = () => openInstalled(mod.name);
+    return manage;
+  }
+  const button = el('button', state.update ? '' : 'ghost', installLabel(mod));
   button.type = 'button';
   button.onclick = () => installMod(mod, button);
   return button;
+}
+
+// Installed, with this mod's row open and in view.
+function openInstalled(name) {
+  closeDetail();
+  modsOpen.add(name);
+  showModsSub('installed');
+  renderModList();
+  const row = [...$('mods-list').querySelectorAll('.mrow')].find(r => r.dataset.mod === name);
+  if (!row) return;
+  row.scrollIntoView({ block: 'center' });
+  row.querySelector('.mrow-hit').focus({ preventScroll: true });
 }
 
 function tagChips(mod, after) {
@@ -2217,16 +2582,18 @@ function detailFor(mod) {
 }
 
 function installLabel(mod) {
-  const installed = Object.hasOwn(modState, mod.name) || Object.hasOwn(updateSlots, mod.name);
-  if (mod.source) {
-    const u = modUpdates[mod.name];
-    return u && u.update ? 'Update…' : installed ? 'Reinstall…' : 'Install…';
-  }
+  const installed = isInstalled(mod.name);
+  const u = modUpdates[mod.name];
+  if (u && u.update) return updateLabel(u);
+  if (mod.source) return installed ? 'Reinstall…' : 'Install…';
   return installed ? 'Reinstall' : 'Install';
 }
 
 async function installMod(mod, button) {
   const was = button.textContent;
+  // An update or a reinstall replaces files the running server still has the
+  // old copy of: that waits for Apply like any other change.
+  const replacing = isInstalled(mod.name);
   button.disabled = true; button.textContent = 'Installing…';
   try {
     const result = await invoke('install_registry_mod', { name: mod.name });
@@ -2240,16 +2607,42 @@ async function installMod(mod, button) {
     log(result.message || `installed ${result.name} ${result.version}`);
     button.textContent = 'Installed';
     if (modUpdates[result.name]) modUpdates[result.name] = { ...modUpdates[result.name], update: false, installed: result.tag || modUpdates[result.name].installed };
+    if (replacing) modsUpdated.add(result.name || mod.name);
     await refreshMods();
+    if (catalogue) paintCatalogue();
   } catch (e) {
     log('error: ' + e);
     button.textContent = was; button.disabled = false;
   }
 }
 
+// The most used tags in the mod list, as one-click filters. Clicking the one
+// in force clears it.
+function paintTagBar(query) {
+  const bar = $('mods-tags');
+  bar.innerHTML = '';
+  if (!catalogue || !catalogue.length) return;
+  const counts = new Map();
+  for (const mod of catalogue) for (const tag of mod.tags) counts.set(tag, (counts.get(tag) || 0) + 1);
+  const top = [...counts].filter(([, n]) => n > 1)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 10).map(([tag]) => tag);
+  for (const tag of top) {
+    const chip = el('button', 'chip', tag);
+    chip.type = 'button';
+    chip.setAttribute('aria-pressed', String(query === tag));
+    chip.onclick = () => {
+      closeDetail();
+      $('mods-search').value = query === tag ? '' : tag;
+      paintCatalogue();
+    };
+    bar.append(chip);
+  }
+}
+
 function paintCatalogue() {
   const box = $('mods-catalogue');
   const query = $('mods-search').value.trim().toLowerCase();
+  paintTagBar(query);
   box.innerHTML = '';
   if (!catalogue) { box.textContent = 'Looking…'; return; }
   const terms = query.split(/\s+/).filter(Boolean);
@@ -2289,8 +2682,8 @@ async function loadCatalogue({ fresh = false } = {}) {
   }
 }
 
-// Mods' two halves, as tabs of their own, remembered the way the section is.
-const MODS_SUBS = { installed: 'mods-installed', find: 'mods-registry' };
+// Mods' three lists, as tabs of their own, remembered the way the section is.
+const MODS_SUBS = { installed: 'mods-installed', updates: 'mods-updates-panel', find: 'mods-registry' };
 const MODS_SUB_KEYS = Object.keys(MODS_SUBS);
 let modsSub = 'installed';
 function showModsSub(key, focus = false) {
@@ -2335,13 +2728,17 @@ if (!$('panel-mods').hidden && modsSub === 'find') loadCatalogue();
   if (window.ResizeObserver) new ResizeObserver(measure).observe(bar);
 }
 
-$('mods-install').onclick = () => withButton('mods-install', 'Installing…', 'Install from a folder…', async () => {
+$('mods-install').onclick = () => withButton('mods-install', 'Installing…', 'Add mod from folder…', async () => {
   const msg = await invoke('install_mod');
+  // A reinstall over a mod already here replaces files the running server
+  // still has the old copy of, as an update from Find Mods does.
+  const name = /^Installed ([A-Za-z0-9_.-]+)\./.exec(String(msg || ''))?.[1];
+  if (name && isInstalled(name)) modsUpdated.add(name);
   await refreshMods();
   return msg;
 });
 
-$('mods-install-skin').onclick = () => withButton('mods-install-skin', 'Installing…', 'Install a UI skin…', async () => {
+$('mods-install-skin').onclick = () => withButton('mods-install-skin', 'Installing…', 'Add UI skin…', async () => {
   const msg = await invoke('install_skin');
   await refreshMods();
   // The skin installer switches its mod on, and any other of its kind off,
@@ -2354,7 +2751,10 @@ $('mods-install-skin').onclick = () => withButton('mods-install-skin', 'Installi
 $('mods-folder').onclick = async () => log('Mods folder: ' + await invoke('open_mods_folder'));
 $('open-data').onclick = async () => setNote('db-note', 'Data folder: ' + await invoke('open_data_folder'));
 
-$('mods-apply').onclick = () => withButton('mods-apply', 'Applying…', 'Apply', async () => {
+$('mods-apply').onclick = () => withButton('mods-apply', 'Applying…', 'Apply & restart server', async () => {
+  // Read before anything is written: whether what is about to be applied
+  // reaches the game window decides whether the game has to be reopened.
+  const reopen = ModsState.needsReopen(modsPending(), modsClient);
   for (const [name, enabled] of Object.entries(modState)) {
     await invoke('set_mod_enabled', { name, enabled });
   }
@@ -2367,11 +2767,17 @@ $('mods-apply').onclick = () => withButton('mods-apply', 'Applying…', 'Apply',
     }
   }
   await invoke('stack_up');
+  modsUpdated.clear();
   await refreshMods();
   modsBaseline = ModsState.applied(modsListed, modState);
-  try { gameNow = await invoke('game_status'); modsAppliedAt = gameNow.launches; } catch { /* older shell */ }
+  modsAppliedAt = null;
+  modsAppliedQuietly = !reopen;
+  if (reopen) {
+    try { gameNow = await invoke('game_status'); modsAppliedAt = gameNow.launches; } catch { /* older shell */ }
+  }
   paintModsStatus();
-  return 'Mods applied. Reopen the game for client-side changes.';
+  // The bar says what happened; the log line under it would only repeat it.
+  return '';
 });
 
 // The second half of "Your link": the internet one, beside the LAN one, so
@@ -2661,6 +3067,7 @@ invoke('get_settings').then(s => {
   $('population_companion_fee_item').value = s.population_companion_fee_item ?? 0;
   $('population_companion_fee_item_amount').value = s.population_companion_fee_item_amount ?? 0;
   $('population_companion_limit').value = s.population_companion_limit ?? 4;
+  $('population_skill_weapon_check').checked = s.population_skill_weapon_check === true;
   refreshPopulation();
 });
 

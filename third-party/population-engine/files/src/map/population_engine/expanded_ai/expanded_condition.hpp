@@ -38,6 +38,9 @@ struct TargetBag {
 	map_session_data*                                              shell  = nullptr;
 	block_list*                                                    enemy  = nullptr;
 	std::array<block_list*, static_cast<size_t>(ExpTarget::_Count)> bls   {};
+	/// Enemies a blast centred on the shell would hit, or -1 when the skill is no such blast.
+	/// enemy_count_nearby counts these instead of the whole detection range.
+	int                                                            enemies_in_blast = -1;
 };
 
 /// Abstract base for one node in an expanded-condition tree.

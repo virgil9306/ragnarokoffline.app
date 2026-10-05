@@ -21,6 +21,8 @@ import GUIComponent from 'UI/GUIComponent.js';
 import Preferences from 'Core/Preferences.js';
 import Renderer from 'Renderer/Renderer.js';
 import ChatBox from 'UI/Components/ChatBox/ChatBox.js';
+import DB from 'DB/DBManager.js';
+import SkillDescription from 'UI/Components/SkillDescription/SkillDescription.js';
 import htmlText from './CompanionPanel.html?raw';
 import cssText from './CompanionPanel.css?raw';
 import 'UI/Elements/Elements.js';
@@ -39,7 +41,9 @@ const _preferences = Preferences.get(
 		// the window is as wide as the widest tab needs, so nothing is cropped.
 		width: 0,
 		height: 0,
-		squads: {}
+		squads: {},
+		// The Summon tab's sex choice: 'm', 'f' or '' for either.
+		draftSex: ''
 	},
 	1.0
 );
@@ -51,8 +55,11 @@ let _roster = [];
 let _pending = [];
 /// Set when a redraw is wanted even if the data is unchanged (a manual Refresh).
 let _forceRedraw = false;
-/// Our own duty choices, so a row can show the badge before the server echoes.
+/// Our own duty choices, so a row can show the badge before the next roster says so.
+/// The roster's own duty replaces an entry as soon as it arrives.
 const _duties = {};
+/// The server's duty numbers (PopulationRoleType): 0 is no duty yet.
+const DUTY_NAMES = { 1: 'tank', 2: 'support', 3: 'attacker' };
 
 /// The companion whose skill picker is open ('' = closed), and the menu last
 /// received from the server for it.
@@ -87,6 +94,30 @@ const JOB_TIERS = [
 		'Inquisitor', 'Troubadour', 'Trouvere', 'SkyEmperor', 'SoulAscetic',
 		'Shinkiro', 'Shiranui', 'NightWatch', 'HyperNovice', 'SpiritHandler']]
 ];
+
+/**
+ * Jobs that are only ever one sex. The engine keeps their sex whatever the
+ * draft asks for (get_job_required_sex); the Summon tab says so instead of
+ * offering a choice that would be ignored.
+ */
+const FIXED_SEX = {
+	Bard: 'm', Clown: 'm', Minstrel: 'm', Troubadour: 'm', Kagerou: 'm', Shinkiro: 'm',
+	Dancer: 'f', Gypsy: 'f', Wanderer: 'f', Trouvere: 'f', Oboro: 'f', Shiranui: 'f'
+};
+
+/**
+ * The @companion draft line for a job and the chosen sex ('m', 'f' or '').
+ * A fixed-sex job is sent without one, so the reply does not complain.
+ *
+ * @param {string} job
+ * @param {string} sex
+ * @returns {string}
+ */
+function _draftCommand(job, sex) {
+	return (sex === 'm' || sex === 'f') && !FIXED_SEX[job]
+		? `@companion draft ${job} ${sex}`
+		: `@companion draft ${job}`;
+}
 
 /**
  * Which job tier a class name belongs to, read off JOB_TIERS.
@@ -175,7 +206,7 @@ function rosterBody(text) {
 
 /**
  * Parse one @CP line. Format (see population_engine_companion_list_raw):
- *   @CP|name|job|base_level|active|favorite|live_level|live_job
+ *   @CP|name|job|base_level|active|favorite|live_level|live_job|pet|duty
  *   @CPEND|count
  *
  * @param {string} text
@@ -183,7 +214,7 @@ function rosterBody(text) {
  */
 /**
  * Parse one @CPSK line (see population_engine_companion_skill_list):
- *   @CPSK|<id>|<name>|<selected 0/1>|<max level>
+ *   @CPSK|<id>|<name>|<selected 0/1>|<max level>|<exclusive 0/1>
  *   @CPSKEND|<count>|<job>|<chosen 0/1>|<summoned 0/1>
  *
  * @param {string} text
@@ -227,7 +258,10 @@ function parseSkillLine(text) {
 		id: parseInt(p[1], 10) || 0,
 		name: p[2],
 		selected: p[3] === '1',
-		level: parseInt(p[4], 10) || 0
+		level: parseInt(p[4], 10) || 0,
+		// Ends another listed skill's status (a song, a dance, a stance). Absent from an older
+		// server, which then shows no such group.
+		exclusive: p[5] === '1'
 	});
 	return true;
 }
@@ -287,7 +321,8 @@ function parseRosterLine(text) {
 				m.name !== _roster[i].name || m.job !== _roster[i].job ||
 				m.liveJob !== _roster[i].liveJob ||
 				m.level !== _roster[i].level || m.active !== _roster[i].active ||
-				m.liveLevel !== _roster[i].liveLevel || m.hom !== _roster[i].hom);
+				m.liveLevel !== _roster[i].liveLevel || m.hom !== _roster[i].hom ||
+				m.duty !== _roster[i].duty);
 		_roster = fresh;
 		_pending = [];
 		const age = _rosterRequestedAt ? Math.round((Date.now() - _rosterRequestedAt) / 1000) : 0;
@@ -328,8 +363,16 @@ function parseRosterLine(text) {
 		hom: (() => {
 			const raw = parts.length > 8 ? parseInt(parts[8], 10) : NaN;
 			return Number.isFinite(raw) ? raw : -1;
-		})()
+		})(),
+		// The duty the server holds: 'tank', 'support', 'attacker', or null for none yet (and
+		// for an older server that does not send it). Kept only in _duties before, the badge
+		// went blank on every restart, reload and relog although the server still had it.
+		duty: DUTY_NAMES[parseInt(parts[9], 10)] || null
 	});
+	// The server has answered for this companion; its duty is the one to show.
+	if (parts.length > 9) {
+		delete _duties[parts[1]];
+	}
 	return true;
 }
 
@@ -430,21 +473,19 @@ function _drawParty() {
 		lv.className = 'lv';
 		lv.textContent = `Lv.${m.liveLevel || m.level}`;
 
+		const current = _duties[m.name] || m.duty;
 		const badge = document.createElement('span');
-		badge.className = `badge ${_duties[m.name] || (m.active ? 'on' : '')}`;
-		badge.textContent = _duties[m.name] || (m.active ? 'ON' : 'OFF');
+		badge.className = `badge ${current || (m.active ? 'on' : '')}`;
+		badge.textContent = current || (m.active ? 'ON' : 'OFF');
 		badge.title = m.active ? 'Summoned' : 'Not summoned';
 
 		const duty = _button('Duty', 'b', () => {
-			// none -> attacker -> tank -> support -> none, sent as party chat
-			const order = [null, 'attacker', 'tank', 'support'];
-			const next = order[(order.indexOf(_duties[m.name] || null) + 1) % order.length];
-			if (next) {
-				_duties[m.name] = next;
-				talk(`${m.name} ${next}`, true);
-			} else {
-				delete _duties[m.name];
-			}
+			// attacker -> tank -> support -> attacker, sent as party chat. No "none" step: the
+			// server has no order for it, so the badge said none while the companion kept its duty.
+			const order = ['attacker', 'tank', 'support'];
+			const next = order[(order.indexOf(current) + 1) % order.length];
+			_duties[m.name] = next;
+			talk(`${m.name} ${next}`, true);
 			_render();
 		}, 'Set this companion\'s duty in battle');
 
@@ -544,6 +585,27 @@ function _drawSummon() {
 		hint.textContent = 'Draft a new companion of any job. It joins your party at once.';
 	}
 
+	// Male / Female / Random for the next draft. Remembered, like the window's place.
+	const sexRow = document.createElement('div');
+	sexRow.className = 'sex-choice';
+	const sexLabel = document.createElement('span');
+	sexLabel.textContent = 'Sex:';
+	sexRow.append(sexLabel);
+	[['m', 'Male'], ['f', 'Female'], ['', 'Random']].forEach(([value, label]) => {
+		const b = _button(label, 'b', () => {
+			_preferences.draftSex = value;
+			_preferences.save();
+			_drawSummon();
+		}, value ? `Draft ${label.toLowerCase()} companions` : 'Draft either sex, at random');
+		b.classList.toggle('on', (_preferences.draftSex || '') === value);
+		sexRow.append(b);
+	});
+	page.append(sexRow);
+	const sexNote = document.createElement('div');
+	sexNote.className = 'hint';
+	sexNote.textContent = 'Jobs marked \u2642 or \u2640 are always that sex.';
+	page.append(sexNote);
+
 	tiers.forEach(([tier, jobs]) => {
 		const h = document.createElement('h4');
 		h.textContent = tier;
@@ -552,14 +614,15 @@ function _drawSummon() {
 		const wrap = document.createElement('div');
 		wrap.className = 'jobs';
 		jobs.forEach(job => {
+			const fixed = FIXED_SEX[job];
 			wrap.append(_button(
-				job.replace(/([a-z])([A-Z])/g, '$1 $2'),
+				job.replace(/([a-z])([A-Z])/g, '$1 $2') + (fixed ? (fixed === 'm' ? ' \u2642' : ' \u2640') : ''),
 				'',
 				() => {
-					talk(`@companion draft ${job}`, false);
+					talk(_draftCommand(job, _preferences.draftSex || ''), false);
 					window.setTimeout(refreshRoster, 900);
 				},
-				`Draft a ${job}`
+				fixed ? `Draft a ${job} (always ${fixed === 'm' ? 'male' : 'female'})` : `Draft a ${job}`
 			));
 		});
 		page.append(wrap);
@@ -646,10 +709,16 @@ function _drawBattle() {
 
 /// Ask the server for one companion's skill menu. Answered through the chat hook
 /// as @CPSK|... lines, terminated by @CPSKEND.
-function askSkills(name) {
+///
+/// `refresh` re-asks after a change made in the open picker: the list on screen stays
+/// until the answer replaces it. Clearing it here redrew the picker as "asking the
+/// server…" between every tick and its answer, and the list came back scrolled to the top.
+function askSkills(name, refresh) {
 	_skillPending = [];
-	_skills = [];
-	_skillMeta = { job: '', chosen: false, emitted: 0, answered: false };
+	if (!refresh) {
+		_skills = [];
+		_skillMeta = { job: '', chosen: false, emitted: 0, answered: false };
+	}
 	talk(`@companion skills ${name}`, false);
 }
 
@@ -663,6 +732,10 @@ function openSkillPicker(name) {
 }
 
 function closeSkillPicker() {
+	// A description the picker opened goes with it; one the skill window opened stays.
+	if (_skills.some(s => s.id === SkillDescription.uid)) {
+		SkillDescription.remove();
+	}
 	_skillTarget = '';
 	_skillPending = [];
 	_skills = [];
@@ -721,21 +794,33 @@ function _skillPickerOverlay() {
 	} else {
 		// The count is the one thing that tells the player whether their tick landed.
 		state.textContent = `${_skills.filter(s => s.selected).length} of ${_skills.length} selected`
-			+ (_skillMeta.chosen ? '' : ' — using the full class list');
+			+ (_skillMeta.chosen ? '' : ' — using the full class list')
+			+ '. Right-click a skill for its description.';
 		box.append(state);
 
 		const list = document.createElement('div');
 		list.className = 'skill-list';
 		let lastGroup = '';
-		_skills.forEach(s => {
+		// Skills that end each other go first, in the server's order, which is the order the
+		// companion prefers them in: ticking several means the first one that is ready plays.
+		const ordered = _skills.filter(s => s.exclusive).concat(_skills.filter(s => !s.exclusive));
+		ordered.forEach(s => {
 			// The engine does not send a target, so group by name prefix family:
 			// this is display only and never decides behaviour.
-			const group = _skillGroupOf(s.name);
+			const group = s.exclusive ? EXCLUSIVE_GROUP : _skillGroupOf(s.name);
 			if (group !== lastGroup) {
 				lastGroup = group;
 				const h = document.createElement('h4');
 				h.textContent = group;
 				list.append(h);
+				if (s.exclusive) {
+					const note = document.createElement('div');
+					note.className = 'hint skill-note';
+					note.textContent = 'Only one of these can run at a time. Tick the one you want. '
+						+ 'If several are ticked, the one higher in this list plays, '
+						+ 'and the others fill in while it is unavailable.';
+					list.append(note);
+				}
 			}
 			const row = document.createElement('label');
 			row.className = 'skill-row' + (s.selected ? ' on' : '');
@@ -751,12 +836,24 @@ function _skillPickerOverlay() {
 				// rather than being set optimistically here.
 				cb.disabled = true;
 				talk(`@companion skills ${_skillTarget} toggle ${s.id}`, false);
-				window.setTimeout(() => askSkills(_skillTarget), 250);
+				window.setTimeout(() => askSkills(_skillTarget, true), 250);
 			});
 
+			// The in-game name, as the skill window shows it; the server sends the Aegis
+			// name, kept as the hover title and as the fallback for a skill the client's
+			// tables do not name.
 			const nm = document.createElement('span');
 			nm.className = 'skill-name';
-			nm.textContent = s.name;
+			nm.textContent = DB.getSkillName(s.id) || s.name;
+			nm.title = s.name;
+
+			// Right-click shows the description, as in the skill window; right-clicking
+			// the same skill again closes it.
+			row.addEventListener('contextmenu', e => {
+				e.preventDefault();
+				e.stopPropagation();
+				_toggleSkillDescription(s.id);
+			});
 
 			const lv = document.createElement('span');
 			lv.className = 'skill-lv';
@@ -772,7 +869,7 @@ function _skillPickerOverlay() {
 	actions.className = 'skill-actions';
 	const mk = (label, cmd, title) => _button(label, 'b', () => {
 		talk(`@companion skills ${_skillTarget} ${cmd}`, false);
-		window.setTimeout(() => askSkills(_skillTarget), 300);
+		window.setTimeout(() => askSkills(_skillTarget, true), 300);
 	}, title);
 	actions.append(
 		mk('All', 'all', 'Use every skill this class can use'),
@@ -787,6 +884,20 @@ function _skillPickerOverlay() {
 	overlay.addEventListener('click', e => e.stopPropagation());
 	return overlay;
 }
+
+/// The client's own skill description window, the one the skill window opens on a
+/// right-click. Toggles like it: the same skill again closes it.
+function _toggleSkillDescription(id) {
+	if (SkillDescription.uid === id) {
+		SkillDescription.remove();
+		return;
+	}
+	SkillDescription.append();
+	SkillDescription.setSkill(id);
+}
+
+/// Heading for the skills that end each other (the @CPSK exclusive flag).
+const EXCLUSIVE_GROUP = 'Songs, dances & stances: one at a time';
 
 /// Display bucket for a skill, from its Aegis name prefix. Presentation only.
 function _skillGroupOf(name) {
@@ -855,11 +966,20 @@ function _panelMount() {
 
 function _mountSkillPicker() {
 	const wrap = _panelMount();
+	// The picker is rebuilt on every redraw; carry the list's scroll position over, or each
+	// tick (which redraws twice: the click and the server's answer) jumps back to the top.
+	const old = wrap.querySelector('.skill-overlay .skill-list');
+	const scroll = old ? old.scrollTop : 0;
 	wrap.querySelectorAll('.skill-overlay').forEach(el => el.remove());
 	if (!_skillTarget) {
 		return;
 	}
-	wrap.append(_skillPickerOverlay());
+	const overlay = _skillPickerOverlay();
+	wrap.append(overlay);
+	const list = overlay.querySelector('.skill-list');
+	if (list && scroll) {
+		list.scrollTop = scroll;
+	}
 }
 
 function _drawGear() {
@@ -1037,7 +1157,7 @@ CompanionPanel.init = function init() {
 	}
 
 	root.querySelector('.titlebar .close').addEventListener('click', () => {
-		CompanionPanel._host.style.display = 'none';
+		_hidePanel();
 	});
 
 	// Tabs are ui-button elements now, not plain <button>, so select on the class
@@ -1077,14 +1197,30 @@ CompanionPanel.init = function init() {
  */
 
 
+/// Keep where the player left the window. Closing it only hides it, and reopening goes
+/// through append() -> onAppend, which places it from the preference; saving only in
+/// onRemove (a map change or logout) put it back wherever it was before the last move.
+function _savePosition() {
+	// A hidden host reports offsetLeft/Top as 0; its position was saved as it was hidden.
+	if (!CompanionPanel._host || CompanionPanel._host.style.display === 'none') {
+		return;
+	}
+	_preferences.x = CompanionPanel._host.offsetLeft;
+	_preferences.y = CompanionPanel._host.offsetTop;
+	_preferences.squads = _preferences.squads || {};
+	_preferences.save();
+}
+
+function _hidePanel() {
+	_savePosition();
+	CompanionPanel._host.style.display = 'none';
+}
+
 /**
  * When the window is removed
  */
 CompanionPanel.onRemove = function onRemove() {
-	_preferences.x = this._host.offsetLeft;
-	_preferences.y = this._host.offsetTop;
-	_preferences.squads = _preferences.squads || {};
-	_preferences.save();
+	_savePosition();
 };
 
 /**
@@ -1126,7 +1262,7 @@ CompanionPanel.toggle = function toggle() {
 			this._fixPositionOverflow();
 		}
 	} else {
-		this._host.style.display = 'none';
+		_hidePanel();
 	}
 };
 

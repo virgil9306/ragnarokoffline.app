@@ -30,8 +30,10 @@ enum Order {
     /// The client takes the *first* table that defines an entry, so the list
     /// runs last mod first, and the base tables `base` finds come last. The
     /// base has to be named: the key replaces the client's default list rather
-    /// than adding to it.
-    LastModFirst { base: fn(&Path) -> Vec<String> },
+    /// than adding to it. After the base comes `fallback`, when there is one:
+    /// a table for whatever the base does not define, which puts the key in
+    /// the config even when no mod added to it.
+    LastModFirst { base: fn(&Path) -> Vec<String>, fallback: fn(&Path) -> Option<String> },
 }
 
 /// Which of a mod's folders a table is found in.
@@ -74,7 +76,7 @@ pub const ITEMS: ListTable = ListTable {
     ext: "lua",
     dir: "System",
     config_key: "customItemInfo",
-    order: Order::LastModFirst { base: base_item_tables },
+    order: Order::LastModFirst { base: base_item_tables, fallback: client_item_fallback },
 };
 
 /// `customQuestInfo`: quest titles, summaries and descriptions
@@ -153,13 +155,17 @@ impl ModTables {
         let mut out = Vec::new();
         for table in LISTS {
             let files = self.list(table);
-            if files.is_empty() {
-                continue;
-            }
             let path = |f: &String| format!("{}/{f}", table.dir);
             let names: Vec<String> = match table.order {
+                Order::ModOrder if files.is_empty() => continue,
                 Order::ModOrder => files.iter().map(path).collect(),
-                Order::LastModFirst { base } => files.iter().rev().map(path).chain(base(web)).collect(),
+                Order::LastModFirst { base, fallback } => {
+                    let fallback = fallback(web);
+                    if files.is_empty() && fallback.is_none() {
+                        continue;
+                    }
+                    files.iter().rev().map(path).chain(base(web)).chain(fallback).collect()
+                }
             };
             let list = names.iter().map(|n| format!("'{n}'")).collect::<Vec<_>>().join(", ");
             out.push(format!("\t{}: [{list}],\n", table.config_key));
@@ -503,6 +509,40 @@ fn base_item_tables(web: &Path) -> Vec<String> {
     names
 }
 
+/// What the client's own item table is called once staged behind the English
+/// one. An underscore, so no mod's copy (`itemInfo-<mod>.lua`) is ever this
+/// file, and no suffix the client tries on its own (`base_item_tables`).
+const CLIENT_ITEM_STEM: &str = "itemInfo_client";
+
+/// Stage the client's own item table in `merged` (the served `System/`) as
+/// [`CLIENT_ITEM_STEM`], to be read after the English one: an item the
+/// translation does not name -- iRO's own costumes and shards, 664 of the
+/// renewal item db's against iRO's data in October 2026 -- then has the
+/// client's name and art instead of none. Its main table, in the order the
+/// client tries them, in any case (iRO's is `iteminfo.lub`); a test server's
+/// (`_sak`) is not one. Returns whether one was staged.
+pub(super) fn stage_client_item_table(sys: &Path, merged: &Path) -> Result<bool, String> {
+    let files: Vec<_> = entries(sys)?.into_iter().filter(|e| e.path().is_file()).collect();
+    for wanted in ["iteminfo.lub", "iteminfo.lua", "iteminfo_true.lub", "iteminfo_true.lua"] {
+        let Some(e) = files.iter().find(|e| e.file_name().to_string_lossy().to_lowercase() == wanted) else {
+            continue;
+        };
+        let ext = &wanted[wanted.len() - 3..];
+        copy_file(&e.path(), &merged.join(format!("{CLIENT_ITEM_STEM}.{ext}")))?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+/// The staged client item table, as `customItemInfo` names it, if there is one.
+fn client_item_fallback(web: &Path) -> Option<String> {
+    ["lub", "lua"]
+        .into_iter()
+        .map(|ext| format!("{CLIENT_ITEM_STEM}.{ext}"))
+        .find(|file| web.join("System").join(file).is_file())
+        .map(|file| format!("System/{file}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -538,6 +578,42 @@ mod tests {
         assert_eq!(fs::read_to_string(merged.join("itemInfo-my-mod.lua")).unwrap(), "MOD ADDITIONS");
         // ...and everything else in System/ still replaces as before.
         assert_eq!(fs::read_to_string(merged.join("OngoingQuests.lub")).unwrap(), "other table");
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// The client's own item table comes after the English base, and after
+    /// every mod's: it only names what nothing before it does. Its main table
+    /// is the one staged, in any case; a test server's is not.
+    #[test]
+    fn the_client_s_item_table_comes_last() {
+        let tmp = tmp("client-items");
+        let (client, src, web) = (tmp.join("client/System"), tmp.join("mod/System"), tmp.join("web"));
+        let merged = web.join("System");
+        write(&merged.join("itemInfo.lua"), "ENGLISH");
+        write(&client.join("iteminfo_sak.lub"), "TEST SERVER");
+        write(&client.join("iteminfo.lub"), "CLIENT");
+        write(&src.join("itemInfo.lua"), "MOD");
+        assert!(stage_client_item_table(&client, &merged).unwrap());
+        assert_eq!(fs::read_to_string(merged.join("itemInfo_client.lub")).unwrap(), "CLIENT");
+
+        // No mod adds an item: the key is written for the client's table alone.
+        assert_eq!(
+            ModTables::default().config_entries(&web),
+            ["\tcustomItemInfo: ['System/itemInfo.lua', 'System/itemInfo_client.lub'],\n"]
+        );
+        let tables = copy_system_layer(&src, &merged, "story").unwrap();
+        assert_eq!(
+            tables.config_entries(&web),
+            ["\tcustomItemInfo: ['System/itemInfo-story.lua', 'System/itemInfo.lua', 'System/itemInfo_client.lub'],\n"]
+        );
+
+        // A client with no item table of its own: nothing staged, no key.
+        let none = tmp.join("bare/System");
+        write(&none.join("font.ttf"), "font");
+        let bare = tmp.join("bare-web");
+        write(&bare.join("System/itemInfo.lua"), "ENGLISH");
+        assert!(!stage_client_item_table(&none, &bare.join("System")).unwrap());
+        assert!(ModTables::default().config_entries(&bare).is_empty());
         let _ = fs::remove_dir_all(&tmp);
     }
 

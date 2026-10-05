@@ -69,6 +69,31 @@ server is never ported; we bring the platform it is tested on.
 - roBrowserLegacy checks files out with CRLF. A whole-file diff means something
   rewrote the line endings.
 
+### Review every change for how hard it makes the next upstream merge
+
+The forks only stay maintainable while each weekly upstream sync merges cleanly
+and our fixes can still go back upstream. So a change to rAthena or
+roBrowserLegacy, whether a fork PR or an engine patch in
+`third-party/population-engine/patches/` that edits rAthena's own files, is
+reviewed for that cost as well as for correctness. Ask before merging:
+
+- **How many upstream files does it touch?** A change spread across many of
+  them collides with every sync. Prefer one small hook in one place, with the
+  logic in a file of our own.
+- **Does it patch an upstream core function, or copy one?** A patch in
+  `vending_purchasereq` has to be re-checked on every rAthena upgrade. A copy of
+  half of `buyingstore_trade` drifts from the original without anyone noticing.
+  Both need a strong reason.
+- **Could it be contributed upstream as it stands?** A general fix written the
+  way upstream writes code can go back. One tangled with our features can't,
+  and we carry it forever.
+- **Could it live somewhere else?** In a mod, in a server extension that is off
+  by default, or in build-time generation, without touching the fork at all?
+
+Bug fixes that mirror a check rAthena already makes are the easy case. Features
+that reach into upstream code for one mod's benefit are the ones to push back
+on: ask for the smallest general hook instead.
+
 ### Server extensions: optional server behaviour, switched on from a mod
 
 When a change to how the server behaves should be optional, it goes behind a
@@ -86,6 +111,45 @@ The full guide, for both adding one in the fork and using one from a mod, is
 [doc/extensions.md](https://github.com/Flux159/rathena/blob/ragnarokoffline/doc/extensions.md)
 in the fork. A mod that depends on an extension needs an app version whose
 pinned fork has it.
+
+### Where a change belongs: the mod first, the platform last
+
+Before writing a feature, decide where it should live, and choose the first
+place on this list that can hold it:
+
+1. **In the mod itself**: its NPC scripts, `db/` tables, Lua skill hooks and
+   client files. Data a person edits, such as a CSV, is turned into the mod's
+   files by a build script the mod keeps beside it in `registry/tools/<mod>/`.
+   The mod ships the generated files, never the script, and nothing reads a
+   file at runtime.
+2. **In a small, general hook** that any mod could use, off unless a mod turns
+   it on: a server extension, or one client-API call.
+3. **In the platform** (the population engine, the supervisor, the shell):
+   only when no mod could do it, and only as much as several mods would share.
+
+A feature for one mod does not go into the shared engine or into rAthena. It
+does not add platform surface either: no file access for Lua, no new script
+commands, no new engine keys just for that mod. Whatever a change adds there,
+every later change has to work around, and every rAthena upgrade has to carry.
+If you think a hook is needed, propose the smallest general one on an issue
+before writing it.
+
+**A worked example, both ways.** #353 added a dynamic market for
+prontera-vendors:
+- a 607-line runtime in the population engine;
+- an engine patch inside rAthena's `vending_purchasereq` and
+  `buyingstore_trade`;
+- its own stored state, a news scheduler and a board;
+- all of it on by default.
+
+It was reverted before release. The same feature fits in the mod: its scripts
+keep the price index on a timer, its build script regenerates the price table,
+and the engine at most reads a per-item price factor the mod sets.
+
+#376 (waypoint-system) shows the right shape. Its waypoints are a CSV that
+`registry/tools/waypoint-system/build_waypoints.py` turns into NPC scripts at
+build time. The mod ships only those scripts, and it changes nothing outside
+itself.
 
 ### The seam where bugs actually live
 

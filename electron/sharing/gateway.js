@@ -112,10 +112,13 @@ class FriendGateway {
   // every /_friend/remember/ path is a 404.
   // `ports` is this copy's (electron/ports.js): the asset server it fronts and
   // the three game servers its WebSocket paths may name. Defaults otherwise.
-  constructor({ origin, ports = DEFAULT_PORTS, upstreamPort = ports.asset, register, now = Date.now, lifetime = 8 * 60 * 60 * 1000, maxSessions = 32, invite = null, signIn = null, remember = null }) {
+  // `modHost(name, request, { client, from })` answers a mod's host route
+  // (../mod-host/manager.js) with { status, type, body: Buffer }, or null for
+  // a mod that has none; without it every /_friend/mod/ path is a 404.
+  constructor({ origin, ports = DEFAULT_PORTS, upstreamPort = ports.asset, register, now = Date.now, lifetime = 8 * 60 * 60 * 1000, maxSessions = 32, invite = null, signIn = null, remember = null, modHost = null }) {
     const url = new URL(origin);
     if (url.protocol !== 'https:' || url.origin !== origin || url.username || url.password) throw Error('An HTTPS game hostname is required');
-    Object.assign(this, { origin, upstreamPort, register, now, lifetime, maxSessions, signIn, remember });
+    Object.assign(this, { origin, upstreamPort, register, now, lifetime, maxSessions, signIn, remember, modHost });
     this.socketPaths = new Set(gameTargets(ports).map(target => '/ws/' + target));
     this.loginPath = '/ws/127.0.0.1:' + ports.login;
     this.host = url.host; this.sessions = new Map(); this.sockets = new Set(); this.requests = new Set();
@@ -186,6 +189,7 @@ class FriendGateway {
     if (req.url === '/_friend/session' && req.method === 'GET') return this.reply(res, 200, { ok: true });
     if (req.url.startsWith('/_friend/sign-in/')) return this.signInRequest(req, res, entry);
     if (req.url.startsWith('/_friend/remember/')) return this.rememberRequest(req, res, entry);
+    if (req.url.startsWith('/_friend/mod/')) return this.modRequest(req, res, entry);
     if (req.url === '/_friend/register' && req.method === 'POST') {
       if (!this.sameOrigin(req) || req.headers['content-type'] !== 'application/json') return this.reply(res, 403, { error: 'Open the original invitation link' });
       if (this.pendingRegistrations >= 2) return this.reply(res, 429, { error: 'Another friend is creating an account. Try again shortly.' });
@@ -365,6 +369,45 @@ class FriendGateway {
     const result = await RememberRoutes.answer({ route, input, credential: cookieValue(req, REMEMBER), remember: this.remember, allow: () => entry.rememberLimit('session') });
     const headers = result.cookie === undefined ? {} : { 'set-cookie': `${REMEMBER}=${result.cookie || ''}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${result.cookie ? RememberRoutes.DAYS * 86400 : 0}` };
     return this.reply(res, result.status, result.body, undefined, headers);
+  }
+  // ---- Host routes: a mod's own handler on this machine (../mod-host/) ----
+  // Behind the same invitation as everything else here, and with the same
+  // rules as /_friend/register for anything that changes state: same origin,
+  // a JSON or text body, bounded. Only the method, the path after the mod's
+  // name, the query, two headers and the body go on -- never the cookie, the
+  // friend's address or any other header -- and only status, type and body
+  // come back. The handler is somebody's mod and may echo what a friend sent,
+  // so its answer is sandboxed by CSP: it can never run script on this origin,
+  // where the invitation session lives.
+  async modRequest(req, res, entry) {
+    const [pathname, ...rest] = req.url.split('?');
+    const query = rest.join('?');
+    const match = /^\/_friend\/mod\/([A-Za-z0-9_-]{1,64})(\/[^#]*)?$/.exec(pathname);
+    if (!this.modHost || !match || !['GET', 'POST', 'PUT', 'DELETE'].includes(req.method)) return this.reply(res, 404, { error: 'Not found' });
+    const route = match[2] || '/';
+    if (route.length > 1024 || query.length > 2048 || /[\x00-\x1f\x7f\\]/.test(route + query)) return this.reply(res, 404, { error: 'Not found' });
+    let bytes = null;
+    if (req.method !== 'GET') {
+      if (!this.sameOrigin(req)) return this.reply(res, 403, { error: 'Not allowed' });
+      const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+      const hasBody = Number(req.headers['content-length'] || 0) > 0 || req.headers['transfer-encoding'] !== undefined;
+      if (hasBody && !['application/json', 'text/plain'].includes(type)) return this.reply(res, 415, { error: 'Send JSON or plain text' });
+      if (Number(req.headers['content-length'] || 0) > 200 * 1024) return this.reply(res, 413, { error: 'Request too large' });
+      try { bytes = await body(req, 200 * 1024); } catch { return this.reply(res, 413, { error: 'Request too large' }); }
+      if (this.closed || this.session(req) !== entry) return this.reply(res, 401, { error: 'A current invitation is required' });
+    }
+    const headers = {};
+    for (const name of ['content-type', 'accept']) if (typeof req.headers[name] === 'string') headers[name] = req.headers[name].slice(0, 200);
+    const request = { method: req.method, path: route, query, headers, body: bytes && bytes.length ? bytes.toString('utf8') : null };
+    let result;
+    try { result = await this.modHost(match[1], request, { client: this.sessionKey(req), from: 'friend' }); }
+    catch { return this.reply(res, 502, { error: 'This mod\'s host service failed.' }); }
+    if (!result) return this.reply(res, 404, { error: 'Not found' });
+    if (this.closed || this.session(req) !== entry) return this.reply(res, 401, { error: 'A current invitation is required' });
+    const output = Buffer.isBuffer(result.body) ? result.body : Buffer.from(String(result.body ?? ''));
+    res.writeHead(result.status, { ...safeHeaders, 'content-type': result.type, 'content-length': output.length,
+      'content-security-policy': "default-src 'none'; sandbox; frame-ancestors 'none'" });
+    res.end(output);
   }
   upgrade(req, socket, head) {
     const entry = this.session(req);

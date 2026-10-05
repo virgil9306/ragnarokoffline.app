@@ -1,0 +1,67 @@
+# waypoint-system: every waypoint, one row each. This file is the whole truth:
+# build_waypoints.py beside it turns it into the mod's
+# registry/mods/waypoint-system/npc/waypoints_placed.txt (and pre-re/) and
+# decides nothing. This file is not shipped. Commands below run from the
+# repository root; after --write, run python3 scripts/mod-index.py.
+#
+# Id        permanent. Unlocks are saved under it: give a new row the next
+#           unused number, and never renumber or reuse one. Deleting a row is fine.
+# Map       the map the board stands on.
+# Type      Field or Dungeon: which group of the Waypoint Keeper's menu.
+# Region    shown in the menu as "Region - Name". No ':' in either.
+# Name
+# Floor     a note for people, e.g. "middle of 5".
+# BoardX,BoardY  where the board stands; a warp lands the traveller beside it.
+# PreReItems, ReItems   what the board asks for in each era, up to 3 items as
+#           AegisName:Quantity separated by spaces, e.g. "Resin:21 Fin:2".
+#           AegisNames are in rAthena's db/<era>/item_db_*.yml.
+# PreReFee, ReFee       the Waypoint Keeper's fee in zeny, per era.
+#           "-" in an era's Items or Fee leaves the waypoint out of that era.
+# Note      a note for people.
+#
+# Adding one: fill Id, Map, Type, Region, Name and leave the rest empty, run
+#   python3 registry/tools/waypoint-system/build_waypoints.py --suggest   (fills only the empty cells)
+# look over what it chose, change anything you like, then
+#   python3 registry/tools/waypoint-system/build_waypoints.py --write
+Id,Map,Type,Region,Name,Floor,BoardX,BoardY,PreReItems,PreReFee,ReItems,ReFee,Note
+1,prt_fild11,Field,Prontera,Goblin forest,,297,291,Cyfar:10,800,Cyfar:10,800,
+2,prt_maze03,Dungeon,Prontera,Labyrinth 3,last,52,8,Limb_Of_Mantis:40,1900,Sticky_Mucus:50,2300,
+3,iz_dun02,Dungeon,Izlude,Byalan 3,middle,233,208,Chinese_Ink:60 Fin:5,1900,Conch:30 Solid_Shell:10,2000,NPC entry
+4,pay_fild07,Field,Payon,Willow / Bigfoot,,19,209,Resin:50,800,Bear's_Foot:40,800,
+5,pay_dun02,Dungeon,Payon,Payon Cave 3,middle of 5,21,67,Danggie:70,1100,Skel_Bone:40,1650,
+6,moc_pryd04,Dungeon,Morroc,Pyramid 4,last upper,8,23,Scales_Shell:70 Crystal_Jewel___:5,2450,Scales_Shell:40 Shining_Scales:10,2650,
+7,in_sphinx3,Dungeon,Morroc,Sphinx 3,middle of 5,206,51,Sacred_Masque:100,1900,Sacred_Masque:50,2700,
+8,gef_dun02,Dungeon,Geffen,Geffen Dungeon 3,middle of 4,102,132,Horseshoe:50 Petite_DiablOfs_Wing:5,1500,Petite_DiablOfs_Horn:30 Petite_DiablOfs_Wing:5,2600,
+9,gl_prison1,Dungeon,Glast Heim,Prison 2,last,149,15,Brigan:60 Steel:5,2950,Brigan:40 Spoon_Stub:5,3650,
+10,gl_sew02,Dungeon,Glast Heim,Sewer 2,middle of 4,107,286,Claw_Of_Rat:30 Petite_DiablOfs_Wing:15,2400,Claw_Of_Rat:20 Petite_DiablOfs_Wing:10,3500,
+11,gl_knt02,Dungeon,Glast Heim,Knight Hall 2,last,17,141,Brigan:90,2400,Brigan:60,3900,
+12,mjolnir_10,Field,Mjolnir,Argos,,239,376,Spiderweb:50,1050,Spiderweb:40,1050,
+13,mjolnir_05,Field,Mjolnir,Argiope,,216,376,Short_Leg:30,800,Short_Leg:30,1100,
+14,mjo_dun03,Dungeon,Mjolnir,Coal Mine 3,last,309,255,Lantern:100,1650,Lantern:60 Wooden_Block:5,2000,
+15,c_tower3,Dungeon,Al De Baran,Clock Tower 3F,middle of 4,65,144,Needle_Of_Alarm:140,2350,Needle_Of_Alarm:80,3150,
+16,alde_dun03,Dungeon,Al De Baran,Clock Tower B3,middle of 4,18,271,Tentacle:110 Emveretarcon:5,2000,Tentacle:60,2800,
+17,cmd_fild04,Field,Comodo,Sea Otter / Aster,,372,293,Feather_Of_Birds:10,800,Sea_Otter_Leather:20,800,
+18,cmd_fild03,Field,Comodo,Anolian / Alligator,,180,23,Solid_Shell:50,1050,Blossom_Of_Maneater:20,1050,
+19,um_fild03,Field,Umbala,Parasite,,118,56,Germinating_Sprout:50,1050,Germinating_Sprout:30,1100,
+20,yuno_fild02,Field,Juno,Sleeper / Beetle King,,22,345,Solid_Peeling:20,1050,Grit:30,1200,
+21,yuno_fild08,Field,Juno,Grand Peco,,372,197,Peco_Wing_Feather:30,1050,Peco_Wing_Feather:20,1100,re adventurer signpost on map
+22,mag_dun02,Dungeon,Juno,Magma 2,last,49,39,Dragon_Canine:130 Burning_Horse_Shoe:70,2300,Dragon_Canine:20,3450,
+23,juperos_02,Dungeon,Juno,Juperos 2,middle,121,283,Screw:80 Broken_Steel_Piece:60,2200,Screw:40 Broken_Steel_Piece:40,3450,NPC entry
+24,nif_fild01,Field,Niflheim,Niflheim field,,339,327,Red_Scarf:30,800,Red_Scarf:20,1550,
+25,ein_fild06,Field,Einbroch,Holden / Goat,,249,360,Empty_Bottle:40,800,Moustache_Of_Mole:30,1250,
+26,ein_dun02,Dungeon,Einbroch,Einbroch Mine 2,last,292,294,Fragment_Of_Crystal:30 Coal:5,2100,Fragment_Of_Crystal:20 Battered_Kettle:5,3100,
+27,lhz_fild03,Field,Lighthalzen,Breeze / Stem Worm,,356,282,Tough_Scalelike_Stem:20,800,Root_Of_Maneater:10,1350,
+28,hu_fild04,Field,Hugel,Novus,,376,176,Dragon_Scale:30,1300,Blossom_Of_Maneater:10,1300,
+29,odin_tem02,Dungeon,Hugel,Odin Temple 2,middle,29,178,Rune_Of_Darkness:80 Rouge:5,2150,Rune_Of_Darkness:80 Rouge:10,3800,NPC entry
+30,ra_fild05,Field,Rachel,Hill Wind / Kobold,,345,281,Harpy's_Feather:40,1050,Cobold_Hair:40,1550,
+31,ice_dun03,Dungeon,Rachel,Ice Cave 3,middle of 4,146,24,Ice_Piece:100 Frozen_Rose:5,2300,Ice_Heart:60 Frozen_Rose:5,3200,
+32,ve_fild03,Field,Veins,Sandman / Magmaring,,355,216,Grit:40,1800,Burning_Heart:20,1800,
+33,thor_v03,Dungeon,Veins,Thor Volcano 3,last,37,266,Burning_Heart:120 Hot_Hair:40,2950,Burning_Heart:60 Hot_Hair:20,4400,
+34,gon_dun03,Dungeon,Kunlun,Kunlun 3,last,65,9,Limpid_Celestial_Robe:60,2150,Limpid_Celestial_Robe:40 Mandragora_Flowerpot:5,3450,
+35,lou_dun03,Dungeon,Louyang,Louyang 3,last,161,43,Dragon_Fang:50 Munak_Doll:5,2300,Dragon_Fang:30 Munak_Doll:5,3150,
+36,ama_dun02,Dungeon,Amatsu,Amatsu 2,middle,36,41,Poison_Toad's_Skin:80,1650,Poison_Toad's_Skin:50,2850,NPC entry
+37,ayo_dun02,Dungeon,Ayothaya,Ayothaya 2,last,20,26,Sword_Accessory:110,1750,Sword_Accessory:60,2350,NPC entry
+38,mosk_dun02,Dungeon,Moscovia,Moscovia 2,middle,162,30,Solid_Twig:40 Pill:5,1300,Solid_Twig:20 Shoot:10,2500,
+39,dew_dun02,Dungeon,Dewata,Krakatau,last,291,31,-,-,Sticky_Mucus:20,2600,renewal only
+40,ma_fild02,Field,Malaya,Malaya field,,252,36,-,-,Beautiful_Flower:20 Mysterious_Flower:10,1700,renewal only
+41,rockmi1,Dungeon,Rockridge,Rockridge mine,,242,19,-,-,Brigan:60 DeadlyPoisonPowder:50 Smoke_Powder:10,4100,renewal only

@@ -58,7 +58,7 @@ test('every persisted trait column is written by the recurring UPDATE', () => {
 	// The snapshot UPDATE is what carries post-recruit changes; a column added to
 	// the SELECT but not the UPDATE stays 0 forever.
 	const upd = src.slice(src.indexOf('void population_engine_persist_companion_gear'));
-	const body = upd.slice(0, 4000);
+	const body = upd.slice(0, 5000);
 	for (const col of ['pow_', 'sta_', 'wis_', 'spl_', 'con_', 'crt_']) {
 		assert.ok(body.includes(`${col}=%d`) || body.includes(`${col}=%u`),
 			`the snapshot UPDATE must write ${col} or grown traits never persist`);

@@ -22,3 +22,12 @@ Compatibility/2019-06-05/SystemEN/mapInfo.lub	SystemEN/mapInfo.lub
 # base layer's .txt line for line and runs past its end, so an older client,
 # which has no .csv of its own, loses nothing to it.
 Compatibility/2023-08-02/data/msgstringtable.csv	data/msgstringtable.csv
+
+# The mail window's Reply and Delete buttons. Their words are drawn into the
+# image, and kRO's say 답장 and 삭제; the base layer has no copy of either.
+Compatibility/2017-06-14/data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/basic_interface/rodexsystem/renewal/btn_reply_out.bmp	data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/basic_interface/rodexsystem/renewal/btn_reply_out.bmp
+Compatibility/2017-06-14/data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/basic_interface/rodexsystem/renewal/btn_reply_over.bmp	data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/basic_interface/rodexsystem/renewal/btn_reply_over.bmp
+Compatibility/2017-06-14/data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/basic_interface/rodexsystem/renewal/btn_reply_press.bmp	data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/basic_interface/rodexsystem/renewal/btn_reply_press.bmp
+Compatibility/2017-06-14/data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/basic_interface/rodexsystem/renewal/btn_delete_out.bmp	data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/basic_interface/rodexsystem/renewal/btn_delete_out.bmp
+Compatibility/2017-06-14/data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/basic_interface/rodexsystem/renewal/btn_delete_over.bmp	data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/basic_interface/rodexsystem/renewal/btn_delete_over.bmp
+Compatibility/2017-06-14/data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/basic_interface/rodexsystem/renewal/btn_delete_press.bmp	data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/basic_interface/rodexsystem/renewal/btn_delete_press.bmp

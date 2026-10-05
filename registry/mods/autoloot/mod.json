@@ -1,0 +1,16 @@
+{
+  "name": "autoloot",
+  "version": "1.0.0",
+  "author": "BlaXun",
+  "description": "An Autoloot window in game: loot every drop at or below a rarity you choose, whole item types such as cards, and a list of exact items -- with a monster check that shows what you would pick up. Works even where @autoloot is kept for GMs, and your item list is kept across logins.",
+  "requires": {
+    "app": ">=1.4.8",
+    "era": "any"
+  },
+  "tags": [
+    "loot",
+    "drops",
+    "quality-of-life"
+  ],
+  "homepage": "https://github.com/Flux159/ragnarokoffline.app/tree/main/registry/mods/autoloot"
+}

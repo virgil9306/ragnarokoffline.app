@@ -1,0 +1,10 @@
+{
+  "name": "host-local-ai",
+  "version": "1.0.0",
+  "author": "Ragnarok Offline",
+  "description": "Host route example: a local OpenAI-compatible model on the host, asked from a window in game by the host and invited friends alike.",
+  "host": {
+    "entry": "host/index.js",
+    "connect": ["http://127.0.0.1:8080"]
+  }
+}

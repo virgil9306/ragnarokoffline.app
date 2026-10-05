@@ -226,9 +226,46 @@ engine's vendors spawn exactly as upstream's do.
   (`PriceMistakeOneIn`), picks a title from `TitleFromPool`, and is replaced
   after `RotationHours` (or `RotationMinutes`) ± `RotationJitterMinutes` with
   a fresh pick. `{name}` in a shop title is the shell's own name.
+- `StockTitles:` on a mod vendor: signs that name what is for sale, each
+  `{ Title, Needs: [items], Any: [items] }`. A mod stall picks its sign after
+  its stock, from `TitleFromPool` plus every `StockTitles` sign that stock
+  bears out (all of `Needs`, one of `Any`), so a sign never names an item the
+  stall lacks. `{item}` and `{price}` in one are filled from a line it really
+  carries ("S> {item} {price}" reads "S> Elunium 13k"). Older builds ignore
+  the key, so item names belong there, not in `TitleFromPool`; without it a
+  stall picks its sign exactly as before.
+- **Customers for players' stalls** (`runtime/population_customers.cpp`):
+  once a minute, every vending stall and buying store a real player has
+  open (online or `@autotrade`) gets the customers a busy server would
+  bring, by the item's market price and demand (a mod price table's `Min`,
+  `Max`, `BuyersPerDay`, `SellersPerDay`), the asking price, cheaper fake
+  stalls on the map and how busy the map is. The sale is half of rAthena's
+  own (`vending_purchasereq`, `buyingstore_trade`): zeny, tax, cart or
+  inventory, the autotrade rows and the stock report; nobody is shown. The
+  time the server was off is caught up for restored `@autotrade` stalls (up
+  to 48 h), and what they did is mailed by RODEX. Off unless a mod sets the
+  `$@pop_customers_*` variables (the file's header lists them); with no
+  price table named it does nothing, not even its clock
+  (`$pop_customers_clock`). `@vendorinfo customers [ff <minutes>]` shows the
+  model for the player stalls on a map, or fast-forwards them.
+- **Per-item price percentage**: a mod may set `$@pop_item_pct[<item id>]`
+  (unset or 0 = 100) to move one item's price at runtime. The engine applies
+  it, on top of the mod's price level, wherever it prices mod stalls and mod
+  buyers and in the customers' market price. prontera-vendors' dynamic market
+  sets it from its own NPC script.
 - `Spawns:` on a vendor entry makes it a mod vendor. Each block names a `Map`
   and either fixed `Positions` (one shell per seat; a taken seat stays empty
   until it is free) or `Count` shells in `Areas` (with optional `MinSpacing`).
+  `Fill: Lanes` fills the `Areas` one at a time in the order listed, each
+  shell on a free cell within two cells of one already in that area, the way
+  players open shops next to a busy street; the next area gets shells once
+  the earlier ones have their share. `LaneFillPct: [70, 80]` sets that share
+  of a lane's usable cells, rolled per lane (default 100: full), which leaves
+  natural gaps; once every lane has its share the rest fill in order.
+  `Fill: Random` (the default) spreads them over all areas.
+  A shell in `Areas` keeps `min_npc_vendchat_distance` (3 cells) from any
+  NPC, as a player's own shop must, so an NPC another mod puts there is not
+  covered by a stall; fixed `Positions` are taken as given.
   Counts are exact unless `ScaleWithDensity: true`. Mod vendors are spawned by
   their own pass after the engine's, never count toward a map's `MaxVendors`,
   and do count toward the global Limit.

@@ -59,6 +59,17 @@ function companionFee(s) {
 }
 
 /**
+ * Whether companions must hold the weapon a skill asks for, as players must
+ * (1), or may use any skill with whatever they carry (0, as before). Off
+ * unless the player turns it on: their default gear does not always fit their
+ * skills, a performer's bow cannot play a song, so turning it on can cost a
+ * companion skills until it is given the right weapon.
+ */
+function skillWeaponCheck(s) {
+	return s.population_skill_weapon_check === true ? 1 : 0;
+}
+
+/**
  * Every population key the server reads, in order. The count is always
  * written, even when the engine is off: rAthena refuses a 0 for it and "none"
  * is expressed by the enable flag alone (see main.js toBattleConf).
@@ -78,6 +89,7 @@ function lines(settings) {
 		`population_engine_companion_hire_zeny_per_level: ${companionFee(settings).zenyPerLevel}\n` +
 		`population_engine_companion_hire_item: ${companionFee(settings).item}\n` +
 		`population_engine_companion_hire_item_amount: ${companionFee(settings).amount}\n` +
+		`population_engine_skill_weapon_check: ${skillWeaponCheck(settings)}\n` +
 		// Off in the compiled defaults. Upstream turns it on in a conf file we
 		// deliberately do not import, so without this line no shell ever opens
 		// a stall -- and a town of people with nothing to sell is most of what
@@ -86,4 +98,4 @@ function lines(settings) {
 	);
 }
 
-module.exports = { lines, companionLimit, areaShare, companionHire, companionFee, HIRE_MODES, AREAS, COMPANION_LIMIT_MIN, COMPANION_LIMIT_MAX };
+module.exports = { lines, companionLimit, areaShare, companionHire, companionFee, skillWeaponCheck, HIRE_MODES, AREAS, COMPANION_LIMIT_MIN, COMPANION_LIMIT_MAX };

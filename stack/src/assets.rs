@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 mod client_tables;
-use client_tables::{copy_data_layer, copy_system_layer, warn_misplaced, ModTables};
+use client_tables::{copy_data_layer, copy_system_layer, stage_client_item_table, warn_misplaced, ModTables};
 
 /// Where the client's text comes from.
 ///
@@ -167,6 +167,25 @@ fn translation_extras(cfg: &Config) -> Vec<(PathBuf, PathBuf)> {
         .collect()
 }
 
+/// The client asks for `SignBoardList.lub`, and the asset server matches the
+/// translation folder by exact case on Linux. The pre-renewal layer ships it
+/// as `signboardlist.lub`, so the request missed it and fell through to the
+/// GRF's renewal signboards. Renamed in the staged copy, never the source.
+fn restore_signboard_name(dir: &Path) -> Result<(), String> {
+    const NAME: &str = "SignBoardList.lub";
+    if !dir.is_dir() {
+        return Ok(());
+    }
+    for e in entries(dir)? {
+        let name = e.file_name();
+        let n = name.to_string_lossy();
+        if n != NAME && n.eq_ignore_ascii_case(NAME) {
+            fs::rename(e.path(), dir.join(NAME)).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 pub fn link(cfg: &Config, args: &[String]) -> Result<(), String> {
     let data = readable_path(
         Path::new(args.first().ok_or("data.grf path required")?),
@@ -243,6 +262,7 @@ pub fn link(cfg: &Config, args: &[String]) -> Result<(), String> {
                 copy_over(&translation.join("Pre-Renewal").join(sub), &en.join(sub))?;
             }
         }
+        restore_signboard_name(&en.join("data/luafiles514/lua files"))?;
         for (src, dst) in translation_extras(cfg) {
             // A pin without one of them is an older translation, not a fault.
             if translation.join(&src).is_file() {
@@ -258,15 +278,23 @@ pub fn link(cfg: &Config, args: &[String]) -> Result<(), String> {
     // asks for achievement_list.lub, and got the Korean one (#164).
     let has_achievements = text.translated() && en.join("SystemEN/achievements.lub").is_file();
     if let Some(sys) = first_dir(&[client_dir.join("System"), client_dir.join("dll_exe/System")]) {
+        // Behind the English item table rather than gone: it still names
+        // what the translation does not (client_tables).
+        if text.translated() {
+            stage_client_item_table(&sys, &merged)?;
+        }
         for e in entries(&sys)? {
             let name = e.file_name();
-            let n = name.to_string_lossy();
+            let n = name.to_string_lossy().to_ascii_lowercase();
             // The English item and quest tables win while they are in
             // front; without them the client's own are the only copies there
             // are, and skipping them leaves the game with no item names.
+            // Matched in any case: iRO ships `iteminfo.lub`, and the client's
+            // first try, `System/itemInfo.lub`, finds it on a case-insensitive
+            // disk and never gets to the English table.
             if text.translated()
-                && (n.starts_with("itemInfo")
-                    || n.starts_with("OngoingQuestInfoList")
+                && (n.starts_with("iteminfo")
+                    || n.starts_with("ongoingquestinfolist")
                     || (n.starts_with("achievement_list") && has_achievements))
             {
                 continue;
@@ -305,7 +333,11 @@ pub fn link(cfg: &Config, args: &[String]) -> Result<(), String> {
     )?;
     let (plugins, tables) = overlay_mods(cfg, &server_root, &merged)?;
     let mut fingerprint = 0xcbf2_9ce4_8422_2325;
-    fnv(&mut fingerprint, b"owned-assets-v2");
+    // Bumped when how the tree is staged changes without its inputs changing
+    // (v3: the signboard table's name; v4: the client's item table staged
+    // behind the English one), so a client holding the old staging in its
+    // cache drops it.
+    fnv(&mut fingerprint, b"owned-assets-v4");
     fnv(&mut fingerprint, text.as_str().as_bytes());
     // Config.local.js carries it, and that file is an ordinary HTTP request
     // the shell only re-fetches when this fingerprint moves. Left out at the
@@ -897,6 +929,69 @@ mod tests {
         fs::remove_dir_all(cfg.state.parent().unwrap()).unwrap();
     }
 
+    /// The client asks for `SignBoardList.lub` in that case, and the asset
+    /// server reads the translation folder case-sensitively on Linux. The
+    /// pre-renewal layer ships the table as `signboardlist.lub`, so unless it
+    /// is staged under the name the client asks for, the request falls through
+    /// to the GRF and the renewal signboards stay over NPCs that have moved.
+    #[test]
+    fn the_pre_renewal_signboard_table_is_staged_under_the_name_the_client_asks_for() {
+        let cfg = fixture_config("signboard-case");
+        let client = cfg.state.parent().unwrap().join("client files");
+        write(&client.join("data.grf"), "archive");
+        let en = cfg.root.join("vendor/ROenglishRE/Translation");
+        write(&en.join("Renewal/data/table.txt"), "renewal table");
+        write(
+            &en.join("Renewal/SystemEN/LuaFiles514/itemInfo.lua"),
+            "English items",
+        );
+        write(
+            &en.join("Renewal/SystemEN/OngoingQuests.lub"),
+            "English quests",
+        );
+        let table = "data/luafiles514/lua files/signboardlist.lub";
+        write(&en.join("Pre-Renewal").join(table), "classic signs");
+        write(
+            &cfg.root.join("config/Config.local.js"),
+            "window.ROConfigLocal = {\nrenewal: true,\n};\n",
+        );
+        write(&cfg.root.join("config/index.html"), "game entry");
+        let args = vec![client.join("data.grf").to_str().unwrap().to_string()];
+        let staged = cfg
+            .state
+            .join("assets/.translation/data/luafiles514/lua files");
+        // Names as the directory lists them: an exact-case lookup is what the
+        // asset server does, and a case-insensitive filesystem would answer
+        // `exists()` for either spelling.
+        let names = |dir: &Path| -> Vec<String> {
+            fs::read_dir(dir)
+                .map(|d| {
+                    d.map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+
+        link(&cfg, &args).unwrap();
+        assert!(
+            !names(&staged).iter().any(|n| n.eq_ignore_ascii_case("SignBoardList.lub")),
+            "renewal has no signboard table of its own; the client's stays in front"
+        );
+
+        write(&cfg.state.join("prerenewal"), "true");
+        link(&cfg, &args).unwrap();
+        assert!(
+            names(&staged).iter().any(|n| n == "SignBoardList.lub"),
+            "staged under {:?}, which the client's request does not match",
+            names(&staged)
+        );
+        assert_eq!(
+            fs::read_to_string(staged.join("SignBoardList.lub")).unwrap(),
+            "classic signs"
+        );
+        fs::remove_dir_all(cfg.state.parent().unwrap()).unwrap();
+    }
+
     /// A kRO client's own Korean copies must not win over the English ones
     /// the translation carries under other names or in its Compatibility
     /// layers (#164), and the extras list cannot reach outside its trees.
@@ -1039,6 +1134,82 @@ mod tests {
         // A value nobody wrote is refused rather than read as the default.
         write(&cfg.state.join("settings.json"), "{\"game_text\":\"portuguese\"}");
         assert!(link(&cfg, &args).unwrap_err().contains("portuguese"));
+        fs::remove_dir_all(cfg.state.parent().unwrap()).unwrap();
+    }
+
+    /// iRO's client names its tables in lower case. They are skipped all the
+    /// same while the translation is in front: the client asks for
+    /// `System/itemInfo.lub` before `itemInfo.lua`, and on Windows and macOS
+    /// that request finds `iteminfo.lub`, so the English table, and every item
+    /// only it names, was never read (standart-npc#55). The item table is
+    /// kept, though, under a name the client never tries on its own, and
+    /// listed after the English one: iRO names items the translation does not.
+    #[test]
+    fn the_clients_own_tables_are_skipped_in_any_case() {
+        let cfg = fixture_config("gametext-case");
+        let client = cfg.state.parent().unwrap().join("client");
+        for (path, text) in [
+            ("data.grf", "archive"),
+            ("System/iteminfo.lub", "iRO items"),
+            ("System/iteminfo_sak.lub", "iRO test items"),
+            ("System/ongoingquestinfolist_true.lub", "iRO quests"),
+            ("System/font.ttf", "font"),
+        ] {
+            write(&client.join(path), text);
+        }
+        let en = cfg.root.join("vendor/ROenglishRE/Translation");
+        write(&en.join("Renewal/data/table.txt"), "renewal table");
+        write(
+            &en.join("Renewal/SystemEN/LuaFiles514/itemInfo.lua"),
+            "English items",
+        );
+        write(
+            &en.join("Renewal/SystemEN/OngoingQuests.lub"),
+            "English quests",
+        );
+        write(
+            &cfg.root.join("config/Config.local.js"),
+            "window.ROConfigLocal = {\nrenewal: true,\nlangtype: 0,\n};\n",
+        );
+        write(&cfg.root.join("config/index.html"), "game entry");
+        let args = vec![client.join("data.grf").to_str().unwrap().to_string()];
+
+        link(&cfg, &args).unwrap();
+        let names: Vec<String> = fs::read_dir(cfg.state.join("assets/System"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        for gone in ["iteminfo.lub", "iteminfo_sak.lub", "ongoingquestinfolist_true.lub"] {
+            assert!(!names.iter().any(|n| n == gone), "{gone} in {names:?}");
+        }
+        assert!(names.iter().any(|n| n == "font.ttf"), "{names:?}");
+        assert_eq!(
+            fs::read_to_string(cfg.state.join("assets/System/itemInfo.lua")).unwrap(),
+            "English items"
+        );
+        // The client's item table, behind the English one; not its test
+        // server's.
+        assert_eq!(
+            fs::read_to_string(cfg.state.join("assets/System/itemInfo_client.lub")).unwrap(),
+            "iRO items"
+        );
+        let config = fs::read_to_string(cfg.state.join("assets/Config.local.js")).unwrap();
+        assert!(
+            config.contains("\tcustomItemInfo: ['System/itemInfo.lua', 'System/itemInfo_client.lub'],\n"),
+            "{config}"
+        );
+
+        // Without the translation they are the only tables there are, under
+        // their own names and in the client's own default order.
+        write(&cfg.state.join("settings.json"), "{\"game_text\":\"client_western\"}");
+        link(&cfg, &args).unwrap();
+        assert_eq!(
+            fs::read_to_string(cfg.state.join("assets/System/iteminfo.lub")).unwrap(),
+            "iRO items"
+        );
+        assert!(!cfg.state.join("assets/System/itemInfo_client.lub").exists());
+        let config = fs::read_to_string(cfg.state.join("assets/Config.local.js")).unwrap();
+        assert!(!config.contains("customItemInfo"), "{config}");
         fs::remove_dir_all(cfg.state.parent().unwrap()).unwrap();
     }
 
@@ -1302,7 +1473,7 @@ mod tests {
         assert!(template.contains("\t\t\tport: 6900,"), "the template moved its port line");
 
         let mut cfg = fixture_config("login-port");
-        cfg.ports = crate::ports::Ports { asset: 13338, login: 16900, char: 16121, map: 15121, agent: 17490 };
+        cfg.ports = crate::ports::Ports { asset: 13338, login: 16900, char: 16121, map: 15121, web: 18888, agent: 17490 };
         fs::create_dir_all(cfg.root.join("config")).unwrap();
         fs::write(cfg.root.join("config/Config.local.js"), &template).unwrap();
         let web = cfg.state.join("web");

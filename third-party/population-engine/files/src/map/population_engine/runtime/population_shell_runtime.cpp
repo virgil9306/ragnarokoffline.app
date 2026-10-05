@@ -356,6 +356,29 @@ bool population_shell_status_check_reset(map_session_data *sd, t_tick last_tick)
 	return false;
 }
 
+/// RAGNAROKMAC: a harvest plant (Green, Red, White Plant, the mushrooms): a Plant that can neither
+/// move nor attack. Every hit on one does 1 damage, so shells spent turn after turn, and their SP
+/// on skills, on things that were no threat. Mandragora and Geographer are Plants too, but they
+/// attack, so they stay targets.
+bool population_shell_mob_is_plant(const mob_data *md)
+{
+	return md && md->status.race == RC_PLANT
+		&& !status_has_mode(&md->status, MD_CANMOVE) && !status_has_mode(&md->status, MD_CANATTACK);
+}
+
+/// A plant is a target only for a companion whose owner is attacking it: the player chose to
+/// harvest it, and the companion joins in. Ambient shells leave plants alone.
+static bool population_shell_plant_allowed(map_session_data *sd, const mob_data *md)
+{
+	map_session_data *owner = population_engine_companion_loot_owner(sd);
+	if (!owner)
+		return false;
+	const unit_data *ud = unit_bl2ud(owner);
+	if (!ud)
+		return false;
+	return ud->target == md->id || (ud->skilltimer != INVALID_TIMER && ud->skilltarget == md->id);
+}
+
 bool population_shell_check_target(map_session_data *sd, unsigned int id)
 {
 	if (!sd || id == 0)
@@ -383,6 +406,8 @@ bool population_shell_check_target(map_session_data *sd, unsigned int id)
 	TBL_MOB *md = map_id2md(bl->id);
 	if (!md || md->type != BL_MOB || md->status.hp <= 0 || md->special_state.ai)
 		return false;
+	if (population_shell_mob_is_plant(md) && !population_shell_plant_allowed(sd, md))
+		return false;
 	if (md->sc.option & (OPTION_HIDE | OPTION_CLOAK))
 		return false;
 	if (!battle_check_range(sd, bl, AREA_SIZE))
@@ -401,6 +426,8 @@ bool population_shell_check_target_for_movement(map_session_data *sd, unsigned i
 		return false;
 	TBL_MOB *md = map_id2md(bl->id);
 	if (!md || md->type != BL_MOB || md->status.hp <= 0 || md->special_state.ai)
+		return false;
+	if (population_shell_mob_is_plant(md) && !population_shell_plant_allowed(sd, md))
 		return false;
 	if (md->sc.option & (OPTION_HIDE | OPTION_CLOAK))
 		return false;
@@ -680,6 +707,8 @@ void population_shell_update_mob_tracker(map_session_data *sd)
 			if (md->status.hp <= 0)               return 0;
 			if (md->sc.option & (OPTION_HIDE | OPTION_CLOAK)) return 0;
 			if (md->special_state.ai)             return 0;
+			// Nor count harvest plants as enemies nearby, or an area skill fires at a garden.
+			if (population_shell_mob_is_plant(md)) return 0;
 
 			c->ids->insert(md->id);
 			auto &tracked          = c->tracker->tracked_mobs[md->id];
@@ -999,7 +1028,7 @@ bool population_shell_try_attack(map_session_data *sd, uint32 target_id, uint16 
 			return false;
 		}
 		int sp_cost = skill_get_sp(skill_id, skill_lv);
-		if (sp_cost > sd->status.sp) {
+		if (sp_cost > sd->battle_status.sp) {
 			pe.attack_fail_count++;
 			return false;
 		}
@@ -1250,7 +1279,7 @@ bool population_shell_try_arena_attack(map_session_data *sd, uint32 target_id, u
 			return false;
 		}
 		int sp_cost = skill_get_sp(skill_id, skill_lv);
-		if (sp_cost > sd->status.sp) {
+		if (sp_cost > sd->battle_status.sp) {
 			pe.attack_fail_count++;
 			return false;
 		}

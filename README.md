@@ -280,12 +280,14 @@ change between macOS, Windows and Linux; only the host-side VM integration does.
 
 ### What each piece is, and whose it is
 
-| Piece | Origin | Role here |
-|---|---|---|
-| [rAthena](https://github.com/rathena/rathena) | upstream, GPL-3.0 | the server. Built arch-native at image build time from our fork, [Flux159/rathena](https://github.com/Flux159/rathena), plus the optional population engine below |
-| [Population Engine](https://github.com/YlenXWalker/Population-Engine) | upstream, GPL-3.0 | server-side AI characters, compiled in but off by default. Vendored in `third-party/`, see its README |
-| [roBrowserLegacy](https://github.com/MrAntares/roBrowserLegacy) | upstream, GPL-3.0 | the client. Built from source with a few patches in `patches/` |
-| [RemoteClient](https://github.com/Flux159/roBrowserLegacy-RemoteClient-Rust) | GPL-3.0 | Rust rewrite of roBrowserLegacy's Node asset server |
+| Piece | Origin | Our fork | Role here |
+|---|---|---|---|
+| [rAthena](https://github.com/rathena/rathena) | upstream, GPL-3.0 | [Flux159/rathena](https://github.com/Flux159/rathena) | the server. Built arch-native at image build time from the fork's `ragnarokoffline` branch, plus the optional population engine below |
+| [Population Engine](https://github.com/YlenXWalker/Population-Engine) | upstream, GPL-3.0 | none: a modified copy in `third-party/` | server-side AI characters, compiled in but off by default. See its README |
+| [roBrowserLegacy](https://github.com/MrAntares/roBrowserLegacy) | upstream, GPL-3.0 | [Flux159/roBrowserLegacy](https://github.com/Flux159/roBrowserLegacy) | the client. Built from the fork's `ragnarokoffline` branch, with our additions in `patches/` |
+| [RemoteClient](https://github.com/Flux159/roBrowserLegacy-RemoteClient-Rust) | ours, GPL-3.0 | not a fork | Rust rewrite of roBrowserLegacy's Node asset server |
+
+How the forks are kept, and what goes on them rather than in `patches/`: [docs/FORKS.md](docs/FORKS.md).
 
 ---
 

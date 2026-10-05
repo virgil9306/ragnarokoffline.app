@@ -5,7 +5,7 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const { once } = require('node:events');
 const { FriendGateway, Frames } = require('../electron/sharing/gateway');
-async function fixture(t) {
+async function fixture(t, options = {}) {
   const observed = [];
   const upstream = http.createServer((req, res) => { observed.push({ url: req.url, headers: req.headers }); res.setHeader('cache-control', 'public,max-age=99999'); res.end('asset'); });
   upstream.on('upgrade', (req, socket) => {
@@ -15,7 +15,7 @@ async function fixture(t) {
   });
   upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening');
   let registrations = 0;
-  const gateway = new FriendGateway({ origin: 'https://play.example.com', upstreamPort: upstream.address().port, register: async () => { registrations++; } });
+  const gateway = new FriendGateway({ origin: 'https://play.example.com', upstreamPort: upstream.address().port, register: async () => { registrations++; }, ...options });
   const port = await gateway.start(0);
   t.after(async () => { await gateway.stop(); upstream.closeAllConnections(); await new Promise(resolve => upstream.close(resolve)); });
   const request = (url, { method = 'GET', headers = {}, body } = {}) => new Promise((resolve, reject) => {
@@ -126,4 +126,64 @@ test('a stored invitation is reused so a shared link survives a restart', () => 
   restarted.revoke();
   assert.notEqual(restarted.invite, before);
   assert.match(restarted.invite, /^[A-Za-z0-9_-]{43}$/);
+});
+
+// Host routes (electron/mod-host/): the gateway's half. The manager behind
+// `modHost` has its own tests in mod-host.test.cjs.
+test('a mod host route needs an invitation, a known mod, same-origin writes and a bounded body; only status/type/body come back', async t => {
+  const calls = [];
+  const modHost = async (name, request, meta) => {
+    calls.push({ name, request, meta });
+    if (name !== 'echo') return null;
+    return { status: 201, type: 'application/json; charset=utf-8', body: Buffer.from(JSON.stringify({ got: request.body })) };
+  };
+  const f = await fixture(t, { modHost });
+  const route = '/_friend/mod/echo/say/hi?x=1&y=2';
+  // Before an invitation: nothing reaches a mod, whatever the peer claims.
+  assert.equal((await f.request(route, { headers: { 'x-forwarded-for': '127.0.0.1' } })).status, 401);
+  assert.equal(calls.length, 0);
+  const cookie = await f.login();
+  const post = (url, { origin = f.gateway.origin, type = 'application/json', body = '{"a":1}', method = 'POST', extra = {} } = {}) =>
+    f.request(url, { method, headers: { cookie, origin, 'content-type': type, ...extra }, body });
+  // Unknown mod, a name that is not a mod name, an unsupported method.
+  assert.equal((await f.request('/_friend/mod/nobody/x', { headers: { cookie } })).status, 404);
+  assert.equal((await f.request('/_friend/mod/../x', { headers: { cookie } })).status, 404);
+  assert.equal((await f.request('/_friend/mod/echo/x', { method: 'PATCH', headers: { cookie } })).status, 404);
+  const before = calls.length;
+  // Cross-origin writes, wrong body types and oversized bodies never reach it.
+  assert.equal((await post(route, { origin: 'https://evil.example' })).status, 403);
+  assert.equal((await post(route, { method: 'DELETE', origin: 'https://evil.example', body: '' })).status, 403);
+  assert.equal((await post(route, { type: 'application/x-www-form-urlencoded', body: 'a=1' })).status, 415);
+  assert.equal((await post(route, { body: 'x'.repeat(201 * 1024) })).status, 413);
+  assert.equal(calls.length, before);
+  // A good one: what the handler sees, and what comes back.
+  const ok = await post(route, { extra: { authorization: 'Bearer private-sentinel', accept: 'application/json', 'x-forwarded-for': '10.0.0.9' } });
+  assert.equal(ok.status, 201);
+  assert.deepEqual(JSON.parse(ok.text), { got: '{"a":1}' });
+  const seen = calls.at(-1);
+  assert.equal(seen.name, 'echo');
+  assert.deepEqual(seen.request, { method: 'POST', path: '/say/hi', query: 'x=1&y=2', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: '{"a":1}' });
+  assert.equal(seen.meta.from, 'friend');
+  assert.match(seen.meta.client, /^[a-f0-9]{64}$/, 'rate-limited per invitation session, by its hash');
+  assert.equal(JSON.stringify(seen).includes('private-sentinel'), false);
+  assert.equal(JSON.stringify(seen).includes(cookie.split('=')[1]), false, 'the session cookie never reaches a mod');
+  assert.match(ok.headers['cache-control'], /no-store/);
+  assert.match(ok.headers['content-security-policy'], /sandbox/);
+  assert.equal(ok.headers['set-cookie'], undefined);
+  assert.equal(ok.headers['content-length'], String(Buffer.byteLength(ok.text)));
+  // A GET needs no Origin (the session cookie is SameSite=Strict) and has no body.
+  const get = await f.request('/_friend/mod/echo', { headers: { cookie } });
+  assert.equal(get.status, 201);
+  assert.deepEqual({ path: calls.at(-1).request.path, body: calls.at(-1).request.body, method: calls.at(-1).request.method }, { path: '/', body: null, method: 'GET' });
+});
+
+test('without a modHost every /_friend/mod/ path is a 404, and a throwing one is a 502', async t => {
+  const plain = await fixture(t);
+  const cookie = await plain.login();
+  assert.equal((await plain.request('/_friend/mod/echo/x', { headers: { cookie } })).status, 404);
+  const broken = await fixture(t, { modHost: async () => { throw Error('secret detail'); } });
+  const cookie2 = await broken.login();
+  const r = await broken.request('/_friend/mod/echo/x', { headers: { cookie: cookie2 } });
+  assert.equal(r.status, 502);
+  assert.doesNotMatch(r.text, /secret detail/);
 });

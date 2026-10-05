@@ -1,0 +1,180 @@
+//===== Ragnarok Offline: waypoint-system ===================
+//= Waypoints out in the world, and Waypoint Keepers in town.
+//=
+//= A waypoint board stands on a field or dungeon floor. Bring it what the
+//= monsters there drop and it attunes to you; from then on a Waypoint
+//= Keeper in any town sends you there for a fee, and the board sends you
+//= back to the town you came from, once per trip.
+//=
+//= Which waypoints exist, what they ask for and what they cost is
+//= generated per era into waypoints_placed.txt, which also places the
+//= boards and keepers as copies of the two templates below.
+//=
+//= Saved per character and per account, under the waypoint's permanent Id:
+//=   WPD_<id>, #WPD_<id>   found the board
+//=   WPU_<id>, #WPU_<id>   attuned to it
+//= Both are always written; the account_wide setting picks which is read,
+//= so switching it loses nothing.
+//=   WP_RET, WP_RET_MAP$, WP_RET_X, WP_RET_Y
+//=                         the waypoint last warped to, and where from
+//============================================================
+
+// callfunc("F_WP_Has", "U" | "D", <id>): attuned to / found waypoint <id>?
+function	script	F_WP_Has	{
+	if (callfunc("F_ModSetting", "waypoint-system", "account_wide", 0))
+		return getd("#WP" + getarg(0) + "_" + getarg(1));
+	return getd("WP" + getarg(0) + "_" + getarg(1));
+}
+
+// callfunc "F_WP_Set", "U" | "D", <id>;
+function	script	F_WP_Set	{
+	setd "WP" + getarg(0) + "_" + getarg(1), 1;
+	setd "#WP" + getarg(0) + "_" + getarg(1), 1;
+	return;
+}
+
+// How many of item <n> (1-3) waypoint <id> asks for, after unlock_percent.
+// 0 when it asks for no item <n>.
+function	script	F_WP_Need	{
+	.@id = getarg(0);
+	.@n = getarg(1);
+	if (!getd("$@WP_IT" + .@n + "[" + .@id + "]"))
+		return 0;
+	.@pct = callfunc("F_ModSetting", "waypoint-system", "unlock_percent", 100);
+	return max(1, getd("$@WP_QT" + .@n + "[" + .@id + "]") * .@pct / 100);
+}
+
+-	script	WaypointBoard	-1,{
+	.@id = atoi(strnpcinfo(2));
+	if ($@WP_MAP$[.@id] == "")
+		end;
+	.@name$ = $@WP_NAME$[.@id];
+	callfunc "F_WP_Set", "D", .@id;
+
+	mes "[Waypoint]";
+	mes "^0055FF" + .@name$ + "^000000";
+	if (callfunc("F_WP_Has", "U", .@id)) {
+		mes "The board is attuned to you. A Waypoint Keeper in any town can send you here.";
+		if (WP_RET != .@id || WP_RET_MAP$ == "")
+			close;
+		.@town$ = getd("$@WPT_" + WP_RET_MAP$ + "$");
+		if (.@town$ == "")
+			.@town$ = WP_RET_MAP$;
+		if (select("Return to " + .@town$ + ":Stay here") == 2)
+			close;
+		.@map$ = WP_RET_MAP$;
+		.@x = WP_RET_X;
+		.@y = WP_RET_Y;
+		WP_RET = 0;
+		WP_RET_MAP$ = "";
+		warp .@map$, .@x, .@y;
+		end;
+	}
+
+	mes "A weathered board, carved with the shapes of the creatures that roam here. Offer what they leave behind, and it will remember you.";
+	next;
+	mes "[Waypoint]";
+	mes "It asks for:";
+	.@ready = 1;
+	for (.@n = 1; .@n <= 3; .@n++) {
+		.@need = callfunc("F_WP_Need", .@id, .@n);
+		if (!.@need)
+			continue;
+		.@item = getd("$@WP_IT" + .@n + "[" + .@id + "]");
+		.@have = countitem(.@item);
+		mes (.@have >= .@need ? "^00AA00" : "^CC0000") + .@need + " " + getitemname(.@item) + "^000000 (you have " + .@have + ")";
+		if (.@have < .@need)
+			.@ready = 0;
+	}
+	next;
+	if (select("Offer the items:Leave") == 2)
+		close;
+	mes "[Waypoint]";
+	// Count again: the inventory may have changed while the window was open.
+	for (.@n = 1; .@n <= 3; .@n++) {
+		.@need = callfunc("F_WP_Need", .@id, .@n);
+		if (.@need && countitem(getd("$@WP_IT" + .@n + "[" + .@id + "]")) < .@need)
+			.@ready = 0;
+	}
+	if (!.@ready) {
+		mes "Nothing happens. The board wants everything at once.";
+		close;
+	}
+	for (.@n = 1; .@n <= 3; .@n++) {
+		.@need = callfunc("F_WP_Need", .@id, .@n);
+		if (.@need)
+			delitem getd("$@WP_IT" + .@n + "[" + .@id + "]"), .@need;
+	}
+	callfunc "F_WP_Set", "U", .@id;
+	// A one-shot effect: EF_READYPORTAL2, the Warp Portal's, stays on screen.
+	specialeffect2 EF_BLESSING;
+	mes "The carvings glow, and the board hums as you step back. It is attuned to you now.";
+	mes "Any Waypoint Keeper in town can send you here.";
+	close;
+}
+
+-	script	WaypointKeeper	-1,{
+	mes "[Waypoint Keeper]";
+	mes "I send travellers to the waypoints they have attuned to, out in the fields and down in the dungeons.";
+	next;
+	.@type = select("Fields:Dungeons:Cancel") - 1;
+	if (.@type == 2)
+		close;
+	.@fee_pct = callfunc("F_ModSetting", "waypoint-system", "fee_percent", 100);
+	.@show = callfunc("F_ModSetting", "waypoint-system", "show_discovered", 1);
+
+	.@menu$ = "";
+	.@n = 0;
+	for (.@i = 0; .@i < getarraysize($@WP_IDS); .@i++) {
+		.@id = $@WP_IDS[.@i];
+		if ($@WP_TYPE[.@id] != .@type)
+			continue;
+		if (callfunc("F_WP_Has", "U", .@id))
+			.@menu$ += $@WP_NAME$[.@id] + " - " + callfunc("F_InsertComma", $@WP_FEE[.@id] * .@fee_pct / 100) + "z:";
+		else if (.@show && callfunc("F_WP_Has", "D", .@id))
+			.@menu$ += "(not attuned) " + $@WP_NAME$[.@id] + ":";
+		else
+			continue;
+		.@ids[.@n] = .@id;
+		.@n++;
+	}
+	mes "[Waypoint Keeper]";
+	if (!.@n) {
+		mes "You have not found any " + (.@type ? "dungeon" : "field") + " waypoints yet. Look for the boards out there, and bring them what they ask for.";
+		close;
+	}
+	mes "Where to?";
+	.@c = select(.@menu$ + "Cancel") - 1;
+	if (.@c >= .@n)
+		close;
+	.@id = .@ids[.@c];
+	// From here: one question, then straight there. clear swaps the text
+	// without a Next button, and the warp closes the window by itself.
+	clear;
+	mes "[Waypoint Keeper]";
+	if (!callfunc("F_WP_Has", "U", .@id)) {
+		mes "You have seen that board, but it does not know you yet. Bring it what it asks for, and then I can send you.";
+		close;
+	}
+	.@fee = $@WP_FEE[.@id] * .@fee_pct / 100;
+	if (.@fee > 0)
+		mes $@WP_NAME$[.@id] + " will be " + callfunc("F_InsertComma", .@fee) + " zeny.";
+	else
+		mes $@WP_NAME$[.@id] + "?";
+	if (select("Go:Cancel") == 2)
+		close;
+	if (Zeny < .@fee) {
+		clear;
+		mes "[Waypoint Keeper]";
+		mes "You are short of zeny for that trip.";
+		close;
+	}
+	Zeny -= .@fee;
+	getmapxy(.@map$, .@x, .@y);
+	WP_RET = .@id;
+	WP_RET_MAP$ = .@map$;
+	WP_RET_X = .@x;
+	WP_RET_Y = .@y;
+	warp $@WP_MAP$[.@id], $@WP_X[.@id], $@WP_Y[.@id];
+	end;
+}

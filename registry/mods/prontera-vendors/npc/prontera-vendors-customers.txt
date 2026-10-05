@@ -1,0 +1,26 @@
+//===== Ragnarok Offline: prontera-vendors =================================
+//= Customers for the player's own stalls: hands the settings to the
+//= population engine, which (from the app build that has it) sends
+//= customers to buy from players' vending stalls and sellers to sell into
+//= their buying stores, and catches up the time the server was off.
+//= Temporary server variables ($@), so removing the mod switches it off at
+//= the next start. On an older build nothing reads them.
+//===========================================================================
+-	script	ProntVendorsCustomers	-1,{
+	end;
+OnInit:
+	.@mod$ = "prontera-vendors";
+	$@pop_customers_table$ = .@mod$;
+	$@pop_customers_sell = callfunc("F_ModSetting", .@mod$, "stall_customers", 0);
+	$@pop_customers_buy = callfunc("F_ModSetting", .@mod$, "store_sellers", 0);
+	$@pop_customers_sell_pct = callfunc("F_ModSetting", .@mod$, "stall_customers_pace", 100);
+	$@pop_customers_buy_pct = callfunc("F_ModSetting", .@mod$, "store_sellers_pace", 100);
+	$@pop_customers_downtime = callfunc("F_ModSetting", .@mod$, "customers_downtime", 1);
+	// How busy a map is: Prontera's market street in full, anywhere else 75 %.
+	$@pop_customers_map_default = 75;
+	deletearray $@pop_customers_maps$;
+	deletearray $@pop_customers_map_pct;
+	setarray $@pop_customers_maps$[0], "prontera";
+	setarray $@pop_customers_map_pct[0], 100;
+	end;
+}

@@ -77,7 +77,7 @@ on:
 #
 # Bump deliberately, once the kits for the new version exist.
 env:
-  NEBULA_VERSION: v0.2.5
+  NEBULA_VERSION: v0.2.6
 
 permissions:
   contents: write

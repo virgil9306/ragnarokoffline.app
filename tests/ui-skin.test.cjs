@@ -11,7 +11,7 @@ const UI = skin.UI_DIR;
 const tmp = tag => fs.mkdtempSync(path.join(os.tmpdir(), `ro-skin-${tag}-`));
 
 // A GRF with nothing in it but a file table: the importer reads names only.
-function fakeGrf(file, names, version = 0x200) {
+function fakeGrf(file, names, version = 0x200, signature = 'Master of Magic') {
 	const tail = version === 0x300 ? 21 : 17;
 	const entries = Buffer.concat(names.map(({ name, dir }) => {
 		const meta = Buffer.alloc(tail);
@@ -23,7 +23,7 @@ function fakeGrf(file, names, version = 0x200) {
 	sizes.writeUInt32LE(packed.length, 0);
 	sizes.writeUInt32LE(entries.length, 4);
 	const header = Buffer.alloc(46);
-	header.write('Master of Magic', 0, 'latin1');
+	header.write(signature, 0, 'latin1');
 	if (version === 0x300) {
 		header.writeUInt32LE(0, 30);
 		header.writeUInt32LE(0, 34);
@@ -62,6 +62,20 @@ function grfIndex(version) {
 	fakeGrf(file, GRF_NAMES, version);
 	return skin.uiIndex([file, '']);
 }
+
+// iRO's 2026 data.grf is signed "Event Horizon" (GRF Editor's signature for the same layout),
+// NUL-terminated with other bytes after it. Refused, it left only official_data.grf's item art
+// in the index, and every picture of every skin missed.
+test('a GRF signed Event Horizon is read like any other', () => {
+	for (const signature of ['Event Horizon\0c\0', 'Event Horizon\0RL']) {
+		const file = path.join(tmp('eh'), 'data.grf');
+		fakeGrf(file, GRF_NAMES, 0x200, signature);
+		assert.strictEqual(skin.grfNames(file).length, GRF_NAMES.length - 1, JSON.stringify(signature));
+	}
+	const file = path.join(tmp('eh'), 'data.grf');
+	fakeGrf(file, GRF_NAMES, 0x200, 'Event Horizons');
+	assert.throws(() => skin.grfNames(file), /is not a GRF/);
+});
 
 test('the GRF file table is read for both layouts, files only', () => {
 	for (const version of [0x200, 0x300]) {

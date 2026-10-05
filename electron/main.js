@@ -14,8 +14,9 @@ const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard, screen, ses
 // Mods' own settings pages are served from a private scheme, which Chromium
 // only accepts if it is declared before the app is ready.
 // Every privileged scheme in one call (Electron keeps only the last): the mod
-// settings pages' and Settings -> Tools' ro-tool://.
-require('./mod-settings-window').registerScheme(protocol, [require('./tools').schemePrivileges]);
+// settings pages', Settings -> Tools' ro-tool:// and mods' host routes'
+// mod-host:// (mod-host/sandbox.js).
+require('./mod-settings-window').registerScheme(protocol, [require('./tools').schemePrivileges, require('./mod-host/sandbox').schemePrivileges]);
 // Quiet launches mute every window for this run, without persisting a setting.
 if (process.argv.includes('--quiet')) {
     app.on('web-contents-created', (_event, contents) => contents.setAudioMuted(true));
@@ -100,6 +101,8 @@ function getSharing() {
         // Remembered logins for a friend (the autologin mod): kept in an
         // HttpOnly cookie by the gateway, exchanged here like the host's own.
         remember: () => rememberLogin(),
+        // Mods' host routes (mod-host/), for /_friend/mod/<mod>/...
+        modHost: (name, request, meta) => modHosts().request(name, request, meta),
     });
 }
 // Sign in with Google or Apple (sharing/oidc.js, docs/FRIENDS_SHARING.md):
@@ -697,6 +700,8 @@ async function assetsStart() {
 			ENABLE_STATIC_SERVE: 'true', ENABLE_WSPROXY: 'true',
 			ROBROWSER_PATH: path.resolve(root, 'vendor/roBrowserLegacy/dist/Web'),
 			WS_ALLOWED_TARGETS: proxyTargets(client).sort().join(','),
+			// rAthena's web server keeps guild emblems; the client asks this origin for them.
+			WEB_SERVER_TARGET: `127.0.0.1:${gamePorts().web}`,
 			DATA_OVERRIDE_PATH: path.resolve(translationRoot(), 'data'),
 			ENABLE_COMPRESSION: process.env.ENABLE_COMPRESSION || 'true',
 			CACHE_MAX_FILES: process.env.CACHE_MAX_FILES || '5000',
@@ -868,6 +873,21 @@ function clientComplete(p) {
 	return !!p.data_grf && fs.existsSync(p.data_grf);
 }
 
+// Rebuild the overlay after a mod changed, and bring the asset server back.
+// linkClient starts with assetServer.prepare(), which stops the server, and
+// nothing else starts it again: removing a mod or changing its options left
+// the game page without assets until the next Apply or restart.
+async function relinkForMods() {
+	if (!clientComplete(getClientPaths())) return;
+	const hadAssets = assetServer.running;
+	try {
+		await linkClient(getClientPaths());
+	} finally {
+		// Even after a failed rebuild: serving what is there beats serving nothing.
+		if (hadAssets) await assetsStart();
+	}
+}
+
 function linkClient(paths) {
 	const selected = { ...paths };
 	const job = assetLinkQueue.then(() => linkClientOwned(selected));
@@ -1026,6 +1046,11 @@ const SETTINGS_DEFAULTS = {
 	population_companion_fee_zeny: 1000,
 	population_companion_fee_item: 0,
 	population_companion_fee_item_amount: 0,
+	// Whether companions must hold the weapon a skill asks for, as players
+	// must. Off keeps the historic behaviour: any skill with any weapon. On,
+	// a companion whose gear does not fit a skill (a performer's default bow
+	// and its songs) skips it until it is given the right weapon.
+	population_skill_weapon_check: false,
 	// How many shells one player may recruit into their party at once. The
 	// server enforces this per recruiter (not per map), and rAthena's MAX_PARTY
 	// of 12 leaves a slot for real players, which is why the UI tops out at 11.
@@ -2074,10 +2099,15 @@ const handlers = {
 		const entry = mods.find(mod => mod.name === name);
 		// Install and update are the same thing for a mod published from its
 		// own repository: fetch the latest release, show it, swap it in.
-		if (entry && entry.source) return installFromSource(entry);
+		if (entry && entry.source) {
+			const installed = await installFromSource(entry);
+			modHostsChanged();
+			return installed;
+		}
 		const present = fs.existsSync(path.join(stateDir(), 'mods', name));
 		const result = await registry.install(name, { url, mods, modsDir: path.join(stateDir(), 'mods') });
 		appLog(`installed mod ${result.name} ${result.version} (${result.files} files)`);
+		modHostsChanged();
 		const on = present ? '' : await switchOnInstalled(result.name);
 		return on ? { ...result, message: `Installed ${result.name} ${result.version}.${on} Apply to restart the server.` } : result;
 	},
@@ -2102,11 +2132,25 @@ const handlers = {
 		let names = [];
 		try { names = fs.readdirSync(modsDir, { withFileTypes: true }).filter(e => e.isDirectory() && !e.name.startsWith('.')).map(e => e.name); }
 		catch { return []; }
-		const installed = names.map(name => ({ name, dir: path.join(modsDir, name) }))
-			.filter(mod => source.readRecord(mod.dir));
-		if (!installed.length) return [];
-		const listing = await registry.list({ url: process.env.RAGNAROK_MOD_INDEX || registry.DEFAULT_INDEX });
-		return source.checkUpdates(installed, listing, sourceOptions({ fresh: !!fresh }));
+		const mods = names.map(name => ({ name, dir: path.join(modsDir, name) }));
+		// From their author's repository: the latest release, looked up.
+		const fromSource = mods.filter(mod => source.readRecord(mod.dir));
+		// Everything else in the mods folder that the mod list also carries
+		// as a reviewed folder: its version there, compared with the one in
+		// the installed mod.json. Without this, a mod installed from the list
+		// never heard of a newer version of itself.
+		const fromList = mods.filter(mod => !source.readRecord(mod.dir)).map(mod => {
+			let version = '';
+			try { version = String(JSON.parse(fs.readFileSync(path.join(mod.dir, 'mod.json'), 'utf8')).version || '').slice(0, 40); } catch { /* no version */ }
+			return { name: mod.name, version };
+		});
+		if (!fromSource.length && !fromList.length) return [];
+		const url = new URL(process.env.RAGNAROK_MOD_INDEX || registry.DEFAULT_INDEX);
+		// A check the player asked for reads today's list, as Find Mods does.
+		if (fresh) url.searchParams.set('t', String(Date.now()));
+		const listing = await registry.list({ url: url.toString() });
+		const listed = source.registryUpdates(fromList, listing, { appVersion: app.getVersion() });
+		return [...listed, ...await source.checkUpdates(fromSource, listing, sourceOptions({ fresh: !!fresh }))];
 	},
 	// A release page, opened in the player's browser. Only ever a GitHub
 	// release URL: the address came from GitHub's API, by way of the page.
@@ -2131,7 +2175,7 @@ const handlers = {
 		// the app would not run it, and the difference is the whole point of
 		// having a reason to show.
 		return out.split('\n').filter(Boolean).map(l => {
-			const [state, name, description, reason, origin, version, author, grants, settings, problems, settingsPage, dir, kind] = l.split('\t');
+			const [state, name, description, reason, origin, version, author, grants, settings, problems, settingsPage, dir, kind, client] = l.split('\t');
 			return {
 				name,
 				enabled: state === 'on',
@@ -2175,18 +2219,57 @@ const handlers = {
 				// `skin` or `cursor`: at most one of each is on, and Settings
 				// draws them as a choice rather than as independent switches.
 				kind: kind || '',
+				// Whether the mod has layers the game window loads (data/,
+				// System/, BGM/, client/), so Settings asks for the game to be
+				// reopened only after an Apply that changed one. Null from an
+				// older supervisor, which cannot tell: Settings then asks.
+				clientSide: client === undefined ? null : client === 'client',
 			};
 		});
 	},
-	set_mod_enabled: ({ name, enabled }) =>
-		runStack([enabled ? 'mod-enable' : 'mod-disable', name]),
+	set_mod_enabled: async ({ name, enabled }) => {
+		const out = await runStack([enabled ? 'mod-enable' : 'mod-disable', name]);
+		modHostsChanged();
+		return out;
+	},
+	// Settings -> Mods: the mods that declare a host route, what each may
+	// connect to, and whether the host has switched it on for that list.
+	mod_host_list: async () => {
+		const consent = modHostConsent();
+		return (await hostMods({ fresh: true })).map(m => m.host instanceof Error
+			? { name: m.name, error: m.host.message, connect: [], allowed: false }
+			: { name: m.name, connect: m.host.connect, allowed: consent.allowed(m.name, m.host.connect) });
+	},
+	// Consent is to the list shown: it is stored with it, and a mod update
+	// that changes the list reads as off again (mod-host/consent.js).
+	mod_host_set: async ({ name, enabled }) => {
+		const mod = (await hostMods({ fresh: true })).find(m => m.name === name);
+		if (!mod) throw new Error(`${name} has no host route.`);
+		if (mod.host instanceof Error) throw new Error(`${name}'s host route cannot run: ${mod.host.message}`);
+		modHostConsent().set(name, !!enabled, mod.host.connect);
+		if (!enabled) modHostsInstance?.stop(name);
+		appLog(`mod-host ${name}: ${enabled ? 'switched on; may connect to ' + (mod.host.connect.join(', ') || 'nothing') : 'switched off'}`);
+		return { allowed: !!enabled };
+	},
+	// api.host.request from the host's own game page (patches/client/
+	// HostRoutes.mjs). Friends reach the same manager through the gateway.
+	mod_host_request: async (args, event) => {
+		if (!callerIsLocalGame(event)) return { status: 404, type: 'application/json; charset=utf-8', body: '{"error":"Not found"}' };
+		const name = String(args.mod || '');
+		if (!require('./mod-host/manifest').NAME.test(name)) return { status: 404, type: 'application/json; charset=utf-8', body: '{"error":"Not found"}' };
+		const result = await modHosts().request(name, {
+			method: args.method, path: args.path, query: args.query,
+			headers: { 'content-type': args.type, accept: args.accept }, body: args.body ?? null,
+		}, { client: 'host', from: 'host' });
+		return { status: result.status, type: result.type, body: result.body.toString('utf8') };
+	},
 	// Values reach the supervisor as one JSON argument; it validates them
 	// against what the mod actually declares before writing anything. The
 	// client only reads them when its config is regenerated, so rebuild the
 	// asset overlay here rather than leaving the game showing stale options.
 	set_mod_settings: async ({ name, values }) => {
 		await runStack(['mod-settings', String(name), JSON.stringify(values ?? {})]);
-		if (clientComplete(getClientPaths())) await linkClient(getClientPaths());
+		await relinkForMods();
 		return { applied: true };
 	},
 	// A mod's own settings page, in a window of its own. What that window can
@@ -2204,7 +2287,9 @@ const handlers = {
 		// offer files only, so a mod folder could not be picked at all.
 		const src = await pickFolderOrArchive('Install a mod from…', 'Mod folder, .zip or .rar');
 		if (!src) return 'Cancelled.';
-		return installModFrom(src);
+		const installed = await installModFrom(src);
+		modHostsChanged();
+		return installed;
 	},
 	// A UI skin (official client format: a folder of .bmp files, or a zip
 	// of one) or a cursor pack (cursors.spr + cursors.act), made into a mod.
@@ -2246,6 +2331,8 @@ const handlers = {
 			throw new Error(`${name} could not be moved to the trash (${(e && e.message) || e}). Nothing was removed; you can delete the folder from Open mods folder.`);
 		}
 		appLog(`removed mod ${name} to the trash`);
+		modHostsChanged();
+		try { modHostConsent().forget(name); } catch { /* nothing was stored */ }
 		// The folder is already gone, so a failure past this point is reported
 		// but does not undo anything.
 		try {
@@ -2255,7 +2342,7 @@ const handlers = {
 		}
 		// Client-side files the mod shipped leave the game with the next
 		// overlay, the same way changed options reach it.
-		if (clientComplete(getClientPaths())) await linkClient(getClientPaths());
+		await relinkForMods();
 		const wasOn = row && row[0] === 'on';
 		return `Removed ${name} (moved to the trash).${wasOn ? ' Apply to restart the server without it.' : ''}`;
 	},
@@ -3100,12 +3187,16 @@ function appLog(line) {
 // Adding a name here is a decision about what a page served by a stranger may
 // do to this machine — not a convenience.
 //
-// The one name on it, `remember_login`, checks for itself that the page is
-// this app's own game window on its own world (callerIsLocalGame) and answers
-// no to anything else, so a joined host's page gets nothing from it. Even on
-// our own page it can only remember the account that page is already logged
-// in to, and hand back a one-time login token for it.
-const GAME_PAGE_HANDLERS = new Set(['remember_login']);
+// `remember_login` checks for itself that the page is this app's own game
+// window on its own world (callerIsLocalGame) and answers no to anything else,
+// so a joined host's page gets nothing from it. Even on our own page it can
+// only remember the account that page is already logged in to, and hand back a
+// one-time login token for it.
+//
+// `mod_host_request` makes the same check, and then reaches only what a
+// friend could reach through the gateway: a mod's host route, if the host has
+// switched it on (mod-host/), with the same limits.
+const GAME_PAGE_HANDLERS = new Set(['remember_login', 'mod_host_request']);
 
 // The host's own game window, on the host's own world: the main frame of the
 // game window, at the asset server's origin, while not joined to anyone.
@@ -3195,6 +3286,64 @@ function modSettingsWindows() {
 	return modSettingsController;
 }
 
+// Mods' host routes (mod-host/, docs/MODDING.md "Host routes"): a mod's own
+// JavaScript that answers requests from invited friends and from the host's
+// own game page, in a hidden sandboxed window that can reach only what its
+// mod.json declares -- and nothing at all until the host switches it on.
+let modHostsInstance = null;
+let modHostTransport = null;
+let hostModsCache = null;
+function modHostConsent() {
+	return require('./mod-host/consent').createConsentStore(path.join(stateDir(), 'mod-host.json'));
+}
+// Every installed mod with a "host" section: { name, enabled, host }, where
+// host is the validated declaration or an Error saying what is wrong with it.
+// Cached briefly, since each listing asks the supervisor.
+async function hostMods({ fresh = false } = {}) {
+	if (!fresh && hostModsCache && Date.now() - hostModsCache.at < 10000) return hostModsCache.mods;
+	const { readHost } = require('./mod-host/manifest');
+	const mods = (await handlers.list_mods())
+		.filter(m => m.dir)
+		.map(m => ({ name: m.name, enabled: m.enabled && !m.refused, host: readHost(m.dir, m.name, { ports: gamePorts() }) }))
+		.filter(m => m.host);
+	hostModsCache = { at: Date.now(), mods };
+	return mods;
+}
+// A mod was installed, removed, updated or switched: running handlers are
+// stopped, and the next request starts whatever is current.
+function modHostsChanged() {
+	hostModsCache = null;
+	modHostsInstance?.stopAll();
+}
+function modHosts() {
+	return modHostsInstance ||= new (require('./mod-host/manager').ModHostManager)({
+		resolve: async name => {
+			if (tearingDown) return null;
+			const mod = (await hostMods()).find(m => m.name === name);
+			if (!mod || !mod.enabled || mod.host instanceof Error) return null;
+			return modHostConsent().allowed(name, mod.host.connect) ? mod.host : null;
+		},
+		transport: decl => {
+			modHostTransport ||= require('./mod-host/sandbox').create({
+				BrowserWindow, session,
+				preload: path.join(__dirname, 'mod-host', 'preload.js'),
+				log: (name, text) => modHosts().hostLog(name, text),
+			});
+			return modHostTransport(decl);
+		},
+		log: appLog,
+	});
+}
+// The hidden handler windows count as windows, so without this closing the
+// last real one would leave the app running with nothing on screen.
+app.on('browser-window-created', (_event, win) => {
+	win.once('closed', () => {
+		if (!modHostsInstance) return;
+		const { isHostWindow } = require('./mod-host/sandbox');
+		if (!BrowserWindow.getAllWindows().some(other => !other.isDestroyed() && !isHostWindow(other))) modHostsInstance.stopAll();
+	});
+});
+
 // Only our exact bundled top-level pages own the host controls. A generic
 // file:// check would also grant them to any other local document.
 function callerIsOwnPage(event) {
@@ -3243,12 +3392,27 @@ ipcMain.handle('invoke', async (event, name, args) => {
 // Menu
 // ---------------------------------------------------------------------------
 
+// GPL-3.0: whoever has the app can get its source. The About panel says where,
+// and the menu item below opens it (macOS draws the panel's credits as plain text).
+const SOURCE_URL = 'https://github.com/Flux159/ragnarokoffline.app';
+
+function setAboutPanel() {
+	app.setAboutPanelOptions({
+		applicationName: app.name,
+		applicationVersion: app.getVersion(),
+		copyright: 'Free software under the GNU General Public License v3.0 (GPL-3.0).',
+		credits: `Source code: ${SOURCE_URL}`,
+		website: SOURCE_URL,
+	});
+}
+
 function buildMenu() {
 	return Menu.buildFromTemplate([
 		{
 			label: app.name,
 			submenu: [
 				{ role: 'about' },
+				{ label: 'Source Code on GitHub', click: () => shell.openExternal(SOURCE_URL) },
 				{ type: 'separator' },
 				{ label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: openSettings },
 				{ type: 'separator' },
@@ -3303,6 +3467,7 @@ function stackEnv() {
 // responding until the containers finished stopping. Quitting must stay
 // responsive even though the work behind it is slow.
 async function teardownAsync() {
+	modHostsInstance?.stopAll();
 	// The account stays as it is: the server is going down with it.
 	if (agentPlayInstance?.running()) await agentPlayInstance.stop({ disableAccount: false }).catch(() => {});
     ++sharingStartRequest;
@@ -3388,7 +3553,7 @@ if (!app.requestSingleInstanceLock()) {
 			return;
 		}
 		// Otherwise it is "show me the game", and the window already exists.
-		const win = windows.game || BrowserWindow.getAllWindows()[0];
+		const win = windows.game || BrowserWindow.getAllWindows().find(w => !require('./mod-host/sandbox').isHostWindow(w));
 		if (win && !win.isDestroyed()) {
 			if (win.isMinimized()) win.restore();
 			win.focus();
@@ -3421,6 +3586,7 @@ app.whenReady().then(() => {
 		if (entry.installed) appLog(`desktop entry ${entry.updated ? 'updated' : 'written'}: ${entry.file}`);
 		else if (entry.file) appLog(`desktop entry not written: ${entry.reason}`);
 	}
+	setAboutPanel();
 	Menu.setApplicationMenu(buildMenu());
 	// Only the listener and its files: the agent's window waits for an agent.
 	try {

@@ -94,8 +94,8 @@ test('the cures are hand-written in the generator, not emitted by a generic shap
 	// The Support-without-Status branch gates on "ally below 70% HP". For a cure that fires on a
 	// healthy ally and wastes the cast, so cures must stay hand-written (one row per status, from
 	// the skill's impl). The other skills in that branch keep the branch's shape - which is what the
-	// 4th-job classes have shipped all along (Biolo carries AM_BERSERKPITCHER, Troubadour/Trouvere
-	// carry WM_DEADHILLHERE), so excluding them for 2nd/3rd jobs would be inconsistent with it.
+	// 4th-job classes have shipped all along (Biolo carries AM_BERSERKPITCHER), so excluding them for
+	// 2nd/3rd jobs would be inconsistent with it.
 	for (const skill of ['AL_CURE', 'TF_DETOXIFY', 'GC_ANTIDOTE']) {
 		assert.ok(gen.includes(`"${skill}"`),
 			`${skill} must be in the generator's hand-written exclusion set`);

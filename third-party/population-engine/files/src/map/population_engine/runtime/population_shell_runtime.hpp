@@ -11,6 +11,8 @@
 
 #include "../../pc.hpp"
 
+struct mob_data;
+
 void population_shell_reset_movement_tick_state(map_session_data *sd, t_tick current_tick);
 bool population_shell_can_emit_movement(map_session_data *sd, MovementOwner owner, const char *source);
 
@@ -21,6 +23,7 @@ int population_shell_move_to_path(std::vector<std::tuple<int, int>> &path, map_s
 bool population_shell_status_check_reset(map_session_data *sd, t_tick last_tick);
 
 bool population_shell_check_target(map_session_data *sd, unsigned int id);
+bool population_shell_mob_is_plant(const mob_data *md);
 bool population_shell_check_target_for_movement(map_session_data *sd, unsigned int id);
 unsigned int population_shell_check_target_alive(map_session_data *sd);
 

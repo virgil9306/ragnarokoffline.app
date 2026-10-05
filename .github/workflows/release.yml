@@ -1,0 +1,146 @@
+name: release
+
+# Cuts a release from main: checks it is ready, tags main's head v<version>,
+# and runs build.yml on that tag, which builds the installers and publishes the
+# GitHub release.
+#
+# The version bump lands first, as an ordinary pull request whose commit is
+# named "<version>" and changes only package.json: main takes nothing but
+# merged pull requests. This workflow never commits; it only tags.
+#
+# Only the maintainer may run it. Anyone with write access can start a
+# workflow_dispatch, so the first step stops every other actor. The scheduled
+# cloud routines act as the maintainer's account and pass that check.
+#
+# A tag pushed with GITHUB_TOKEN does not start tag-push workflows, so
+# build.yml is dispatched on the tag explicitly. Its release job keys on
+# refs/tags/v*, and a dispatch on a tag ref has exactly that ref.
+#
+# dry_run (the default) runs every check and stops before the tag.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, e.g. 1.5.1 (main's package.json must already say it)
+        required: true
+        type: string
+      dry_run:
+        description: Check only; do not tag or build
+        type: boolean
+        default: true
+
+permissions:
+  contents: write # push the tag
+  actions: write # dispatch build.yml
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Only the maintainer releases
+        run: |
+          if [ "${{ github.actor }}" != "Flux159" ]; then
+            echo "::error::release.yml was started by ${{ github.actor }}; only Flux159 may release."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: The version is the next one
+        run: |
+          set -euo pipefail
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$VERSION' is not a version like 1.5.1"; exit 1
+          fi
+          git fetch --tags --force --quiet
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::v$VERSION already exists"; exit 1
+          fi
+          last=$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          IFS=. read -r major minor patch <<<"${last#v}"
+          # No x.y.10: after 1.4.9 comes 1.5.0, and after 1.9.9 comes 2.0.0.
+          if [ "$patch" -lt 9 ]; then patch=$((patch + 1))
+          elif [ "$minor" -lt 9 ]; then minor=$((minor + 1)); patch=0
+          else major=$((major + 1)); minor=0; patch=0; fi
+          next="$major.$minor.$patch"
+          if [ "$VERSION" != "$next" ]; then
+            echo "::error::the release after $last is $next, not $VERSION"; exit 1
+          fi
+          echo "last release $last, releasing $VERSION"
+
+      - name: main says this version, and nothing is waiting since
+        run: |
+          set -euo pipefail
+          have=$(node -p "require('./package.json').version")
+          if [ "$have" != "$VERSION" ]; then
+            echo "::error::main's package.json is $have. Merge the \"$VERSION\" bump pull request first."; exit 1
+          fi
+          last=$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          if [ -z "$(git log --oneline "$last..HEAD" -- . ':!package.json')" ]; then
+            echo "::error::nothing but the version changed since $last"; exit 1
+          fi
+
+      - name: main's own CI passed
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse HEAD)
+          for _ in $(seq 1 40); do
+            run=$(gh run list -R "$GITHUB_REPOSITORY" -w test.yml -b main -c "$sha" -L 1 --json status,conclusion -q '.[0] // empty | "\(.status) \(.conclusion)"')
+            case "$run" in
+              "completed success") echo "test.yml passed on $sha"; exit 0 ;;
+              completed*) echo "::error::test.yml on main's head ended: $run"; exit 1 ;;
+            esac
+            echo "test.yml on $sha: ${run:-not started}; waiting"; sleep 30
+          done
+          echo "::error::test.yml did not finish on $sha"; exit 1
+
+      - name: The server images are main's, and fresh
+        run: |
+          set -euo pipefail
+          # The paths images.yml rebuilds on. Keep in step with its on.push.paths.
+          img=$(git log -1 --first-parent --format=%H -- containers .github/workflows/images.yml \
+            tests/integration/mariadb-secrets.py config/PACKETVERS scripts/packetvers.sh third-party \
+            scripts/apply-server-mods.sh scripts/apply-crash-trace.py config/VENDOR_PINS)
+          busy=$(gh run list -R "$GITHUB_REPOSITORY" -w images.yml -b main -L 20 --json status -q '[.[] | select(.status != "completed")] | length')
+          if [ "$busy" != 0 ]; then
+            echo "::error::an images.yml run is still going; wait for it (or cancel the stale ones)"; exit 1
+          fi
+          run=$(gh run list -R "$GITHUB_REPOSITORY" -w images.yml -b main -L 40 --json headSha,conclusion,createdAt \
+            -q "[.[] | select(.headSha == \"$img\")][0] // empty | \"\(.conclusion) \(.createdAt)\"")
+          if [ -z "$run" ]; then echo "::error::no images.yml run for ${img:0:9}"; exit 1; fi
+          read -r conclusion started <<<"$run"
+          if [ "$conclusion" != success ]; then
+            echo "::error::images.yml for ${img:0:9} ended $conclusion"; exit 1
+          fi
+          stale=$(gh release view images -R "$GITHUB_REPOSITORY" --json assets \
+            -q "[.assets[] | select((.name | startswith(\"images-\")) and .updatedAt < \"$started\") | .name] | join(\", \")")
+          if [ -n "$stale" ]; then
+            echo "::error::older than the images.yml run for ${img:0:9}: $stale"; exit 1
+          fi
+          echo "images from ${img:0:9}, published after $started"
+
+      - name: Tag and build
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" -m "$VERSION" HEAD
+          git push origin "v$VERSION"
+          gh workflow run build.yml -R "$GITHUB_REPOSITORY" --ref "v$VERSION"
+          echo "Tagged v$VERSION at $(git rev-parse --short HEAD) and started build.yml on it."
+
+      - name: Dry run
+        if: ${{ inputs.dry_run }}
+        run: echo "Dry run, every check passed. Run again with dry_run off to tag v$VERSION and build it."

@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { lines, companionLimit, areaShare, companionHire, companionFee, COMPANION_LIMIT_MIN, COMPANION_LIMIT_MAX } = require('../electron/population-conf');
+const { lines, companionLimit, areaShare, companionHire, companionFee, skillWeaponCheck, COMPANION_LIMIT_MIN, COMPANION_LIMIT_MAX } = require('../electron/population-conf');
 
 // The bounds the Settings slider exposes: 4 (the historic cap) to 11, because
 // rAthena's MAX_PARTY in our fork is 12 and a slot must stay free for real
@@ -83,4 +83,15 @@ test('the hiring mode and fee are written, clamped, and default to free choice',
 	assert.equal(companionHire({ population_companion_hire: 'panel' }), 1);
 	assert.equal(companionHire({ population_companion_hire: 'nonsense' }), 0);
 	assert.deepEqual(companionFee({ population_companion_fee_zeny: 0 }), { zenyPerLevel: 0, item: 0, amount: 0 });
+});
+
+// Weapon rules (#290): off unless the box is ticked, so a save from before, or a
+// hand-edited truthy string, keeps companions using any skill with any weapon.
+test('the weapon rule is written, and is off unless turned on', () => {
+	const base = { population_enable: true, population_max: 1500, population_density: 100 };
+	assert.match(lines(base), /^population_engine_skill_weapon_check: 0$/m);
+	assert.match(lines({ ...base, population_skill_weapon_check: true }), /^population_engine_skill_weapon_check: 1$/m);
+	assert.match(lines({ ...base, population_enable: false, population_skill_weapon_check: true }),
+		/^population_engine_skill_weapon_check: 1$/m, 'written while the engine is off, so it sticks');
+	for (const v of [false, 'yes', 1, null, undefined]) assert.equal(skillWeaponCheck({ population_skill_weapon_check: v }), 0, String(v));
 });

@@ -58,17 +58,6 @@ diff --git a/src/map/party.cpp b/src/map/party.cpp
  	idb_remove(party_db,party_id);
  
  	return 1;
-@@ -1145,6 +1169,10 @@
- 	intif_party_message(sd->status.party_id,sd->status.account_id,mes,len);
- 	party_recv_message(sd->status.party_id,sd->status.account_id,mes,len);
- 
-+	// RAGNAROKMAC (companion orders): party chat is the command channel for AI
-+	// companions ("attack", "defensive", "<name> tank", "taunt", "recall").
-+	population_engine_on_party_chat(sd, mes);
-+
- 	// Chat logging type 'P' / Party Chat
- 	log_chat(LOG_CHAT_PARTY, sd->status.party_id, sd->status.char_id, sd->status.account_id, mapindex_id2name(sd->mapindex), sd->x, sd->y, nullptr, mes);
- 
 diff --git a/src/map/pc.cpp b/src/map/pc.cpp
 --- a/src/map/pc.cpp
 +++ b/src/map/pc.cpp

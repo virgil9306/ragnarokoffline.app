@@ -67,6 +67,13 @@ function validate() {
 async function main() {
     if (command === 'prepare') {
         if (fs.existsSync(world)) throw new Error('Choose a new empty world path; existing state is never overwritten');
+        // nebula listens on Unix sockets under <world>/nebula/run, and macOS caps
+        // a socket path at 104 bytes with its NUL. Too long a world path only
+        // shows up minutes later, as nebulad's "path must be shorter than SUN_LEN".
+        const socketPath = path.join(world, 'nebula', 'run', 'containerd.sock');
+        if (process.platform !== 'win32' && Buffer.byteLength(socketPath) > 103) {
+            throw new Error(`World path too long: ${socketPath} is ${Buffer.byteLength(socketPath)} bytes and Unix sockets allow 103. Choose a shorter RO_E2E_WORLD, such as ~/hrw.`);
+        }
         const runtime = process.env.RO_E2E_RUNTIME;
         const selection = process.env.RO_E2E_CLIENT_JSON;
         if (!runtime || !selection) throw new Error('Preparation needs RO_E2E_RUNTIME and RO_E2E_CLIENT_JSON');

@@ -2,7 +2,9 @@ import { createMovement } from './MovementCore.mjs';
 
 import { SCREENS } from './PregameViews.mjs';
 
-const EVENTS = new Set(['map:enter', 'map:leave', 'connection', 'ui:append', 'ui:remove', 'movement:clear', 'preferences:change', 'item:use', 'exit']);
+const EVENTS = new Set(['map:enter', 'map:leave', 'connection', 'ui:append', 'ui:remove', 'movement:clear', 'preferences:change', 'item:use', 'exit', 'server:event']);
+// A picture in the client's interface folder: plain names, no `..`.
+const MENU_PICTURE = /^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_./-]*\.(bmp|tga|png|jpe?g)$/i;
 const copy = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 function freeze(value) {
     if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); }
@@ -63,6 +65,25 @@ export function createRuntime({ storage, report = (...args) => console.error(...
                 for (const value of values) { try { listener(value); } catch (error) { report(`[Plugin ${name}] replay`, error); } }
             });
             return off;
+        };
+        // api.ui.scale: each factor this plugin changed, as it found it, to
+        // put back when it goes. `null` is the global factor.
+        const scaledBefore = new Map();
+        const changeScale = (window, value) => {
+            if (disposed) throw new Error(`Plugin ${name} is disposed`);
+            if (window !== null && typeof window !== 'string') throw new TypeError('scale: a window is named by a string');
+            if (typeof value !== 'number' || !Number.isFinite(value)) throw new TypeError('scale: a scale is a finite number');
+            const scale = bridge.uiScale;
+            if (!scale) return null;
+            if (window !== null && !scale.windows().includes(window)) throw new TypeError(`scale: ${window} cannot be scaled`);
+            const read = () => (window === null ? scale.getGlobal() : scale.get(window));
+            const write = factor => (window === null ? scale.setGlobal(factor) : scale.set(window, factor));
+            if (!scaledBefore.has(window)) {
+                const before = read();
+                scaledBefore.set(window, before);
+                cleanup(() => write(before));
+            }
+            return write(value);
         };
         const api = Object.freeze({
             version: 1, name, cleanup, on, snapshot,
@@ -236,6 +257,49 @@ export function createRuntime({ storage, report = (...args) => console.error(...
                         onClose: fn => typeof fn === 'function' ? handle.onClose(fn) : () => {},
                     });
                 },
+                // The client's windows drawn larger or smaller (WindowScale.mjs
+                // over the fork's UI/UIScale.js): a global factor times each
+                // window's own, kept between 0.5 and 3. Only the windows
+                // `windows()` names can be scaled. The client remembers
+                // nothing, so a plugin keeps the player's choice itself.
+                // Put back when the plugin goes.
+                scale: Object.freeze({
+                    supported: () => Boolean(bridge.uiScale),
+                    windows: () => Object.freeze([...(bridge.uiScale?.windows() || [])]),
+                    get(window) {
+                        if (typeof window !== 'string') throw new TypeError('scale: a window is named by a string');
+                        if (!bridge.uiScale) return 1;
+                        if (!bridge.uiScale.windows().includes(window)) throw new TypeError(`scale: ${window} cannot be scaled`);
+                        return bridge.uiScale.get(window);
+                    },
+                    set: (window, value) => changeScale(window, value),
+                    global: () => (bridge.uiScale ? bridge.uiScale.getGlobal() : 1),
+                    setGlobal: value => changeScale(null, value),
+                }),
+                // A button of the plugin's own in the option menu (the
+                // window Escape opens), after the menu's settings buttons,
+                // drawn from pictures in the client's interface folder that
+                // the mod ships in data/texture/ui/: at rest, under the
+                // pointer and pressed, 221 x 20 like the menu's own.
+                // Returns a function that takes it out; it also goes when
+                // the plugin does.
+                menuButton(spec) {
+                    if (disposed) throw new Error(`Plugin ${name} is disposed`);
+                    if (!spec || typeof spec !== 'object') throw new TypeError('menuButton takes { background, hover?, down?, title?, onClick }');
+                    for (const key of ['background', 'hover', 'down']) {
+                        if (key !== 'background' && spec[key] === undefined) continue;
+                        if (typeof spec[key] !== 'string' || !MENU_PICTURE.test(spec[key])) throw new TypeError(`menuButton: ${key} must be a picture in the interface folder, like 'esc_mymod_a.bmp'`);
+                    }
+                    if (typeof spec.onClick !== 'function') throw new TypeError('menuButton needs an onClick function');
+                    const checked = {
+                        background: spec.background, hover: spec.hover, down: spec.down,
+                        title: typeof spec.title === 'string' ? spec.title.slice(0, 80) : '',
+                        onClick: () => { try { spec.onClick(); } catch (error) { report(`[Plugin ${name}] menu button`, error); } },
+                    };
+                    if (typeof bridge.addMenuButton !== 'function') return () => {};
+                    const remove = bridge.addMenuButton(checked);
+                    return cleanup(() => remove?.());
+                },
             }),
             // The client's item tables: what the game itself shows.
             items: Object.freeze({
@@ -336,6 +400,17 @@ export function createRuntime({ storage, report = (...args) => console.error(...
                     return freeze(copy(now));
                 },
             }),
+            // The mod's own host route (HostRoutes.mjs): its handler on the
+            // host's machine, reached from the host's window and from a
+            // friend's alike. Only this plugin's own: the name is bound here.
+            host: Object.freeze({
+                request(path, options = {}) {
+                    if (disposed) return Promise.reject(new Error(`Plugin ${name} is disposed`));
+                    if (typeof bridge.hostRequest !== 'function') return Promise.reject(new Error('this client cannot reach host routes'));
+                    return Promise.resolve().then(() => bridge.hostRequest(name, path, copy(options)))
+                        .then(value => freeze(copy(value)));
+                },
+            }),
             server: Object.freeze({
                 // Ask the mod's server script for something: it answers an
                 // @command (bindatcmd) with @@reply lines (dispbottom).
@@ -376,6 +451,11 @@ export function createRuntime({ storage, report = (...args) => console.error(...
         // sends, so it carries the item's type id (ITID), resolved from the live
         // inventory before the server consumes the stack.
         useItem(itemId) { if (Number.isInteger(itemId)) emit('item:use', Object.freeze({ itemId })); },
+        // A mod's server script spoke first: `@@event <command> <text>`
+        // (PluginWindows.mjs).
+        serverEvent(command, text) {
+            if (typeof command === 'string' && typeof text === 'string') emit('server:event', Object.freeze({ command, text }));
+        },
         // The player chose to leave: { to: 'charSelect' | 'login', from:
         // 'escape' | 'charSelect' } (the fork's UI/ExitHooks.js). Not sent
         // for a disconnect.

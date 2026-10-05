@@ -2,7 +2,7 @@
 // The host ports this copy of the app listens on.
 //
 // The source of truth is the environment -- RAGNAROK_OFFLINE_ASSET_PORT,
-// _LOGIN_PORT, _CHAR_PORT, _MAP_PORT, _AGENT_PORT -- and the only thing that
+// _LOGIN_PORT, _CHAR_PORT, _MAP_PORT, _WEB_PORT, _AGENT_PORT -- and the only thing that
 // parses it is the supervisor (stack/src/ports.rs). This asks it,
 // `ragnarok-stack ports`, rather than reading the variables a second time, so
 // the shell, the supervisor and the test scripts cannot disagree about what a
@@ -13,7 +13,7 @@
 
 const { spawnSync } = require('node:child_process');
 
-const DEFAULTS = Object.freeze({ asset: 3338, login: 6900, char: 6121, map: 5121, agent: 7490 });
+const DEFAULTS = Object.freeze({ asset: 3338, login: 6900, char: 6121, map: 5121, web: 8888, agent: 7490 });
 const OVERRIDE = /^RAGNAROK_OFFLINE_[A-Z]+_PORT$/;
 
 function overridden(env = process.env) {

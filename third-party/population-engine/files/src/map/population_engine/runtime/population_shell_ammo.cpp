@@ -30,6 +30,8 @@ struct ShellAmmoChoice {
 	uint16 min_level;
 };
 
+// Renewal-only entries sit under #ifdef RENEWAL: the pre-renewal item db lacks them, and each
+// lookup of one printed an itemdb_search warning there and stocked nothing (#256).
 static constexpr ShellAmmoChoice kArrows[] = {
 	{ 1750, AMMO_ARROW, ELE_NEUTRAL, 25, 1 }, { 1751, AMMO_ARROW, ELE_HOLY, 30, 1 },
 	{ 1752, AMMO_ARROW, ELE_FIRE, 30, 1 }, { 1753, AMMO_ARROW, ELE_NEUTRAL, 40, 1 },
@@ -38,19 +40,23 @@ static constexpr ShellAmmoChoice kArrows[] = {
 	{ 1762, AMMO_ARROW, ELE_NEUTRAL, 30, 1 }, { 1765, AMMO_ARROW, ELE_POISON, 50, 1 },
 	{ 1766, AMMO_ARROW, ELE_HOLY, 50, 1 }, { 1767, AMMO_ARROW, ELE_DARK, 30, 1 },
 	{ 1770, AMMO_ARROW, ELE_NEUTRAL, 30, 1 }, { 1772, AMMO_ARROW, ELE_HOLY, 50, 1 },
+#ifdef RENEWAL
 	{ 1773, AMMO_ARROW, ELE_NEUTRAL, 45, 1 }, { 1774, AMMO_ARROW, ELE_NEUTRAL, 35, 1 },
+#endif
 };
 
 // Deliberately excludes Slug_Bullet_1 (13210). It is marked Classes: All:
 // false, and the old forced-equip path caused rAthena to remove it on pc_setpos.
 static constexpr ShellAmmoChoice kBullets[] = {
 	{ 13200, AMMO_BULLET, ELE_NEUTRAL, 25, 1 }, { 13201, AMMO_BULLET, ELE_HOLY, 15, 1 },
+#ifdef RENEWAL
 	{ 13215, AMMO_BULLET, ELE_NEUTRAL, 50, 100 }, { 13216, AMMO_BULLET, ELE_FIRE, 40, 100 },
 	{ 13217, AMMO_BULLET, ELE_WATER, 40, 100 }, { 13218, AMMO_BULLET, ELE_WIND, 40, 100 },
 	{ 13219, AMMO_BULLET, ELE_EARTH, 40, 100 }, { 13220, AMMO_BULLET, ELE_HOLY, 40, 100 },
 	{ 13221, AMMO_BULLET, ELE_HOLY, 15, 1 }, { 13228, AMMO_BULLET, ELE_FIRE, 20, 1 },
 	{ 13229, AMMO_BULLET, ELE_WIND, 20, 1 }, { 13230, AMMO_BULLET, ELE_WATER, 20, 1 },
 	{ 13231, AMMO_BULLET, ELE_POISON, 20, 1 }, { 13232, AMMO_BULLET, ELE_DARK, 20, 1 },
+#endif
 };
 
 #ifndef RENEWAL

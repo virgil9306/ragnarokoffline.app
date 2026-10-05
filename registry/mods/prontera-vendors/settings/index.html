@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Prontera vendors</title>
+<style>
+  :root { color-scheme: light dark; --dim: #888; --accent: #4a8fe7; --line: #8884; --changed: #4a8fe722; --warn: #d9822b; }
+  body { font: 14px/1.4 system-ui, sans-serif; margin: 0; padding: 18px 20px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 18px 0 6px; }
+  p.note { color: var(--dim); margin: 0 0 10px; }
+  .group { border: 1px solid var(--line); border-radius: 8px; }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 2px 16px; align-items: center; padding: 9px 12px; border-top: 1px solid var(--line); }
+  .row:first-child { border-top: 0; }
+  .row.changed { background: var(--changed); }
+  .row.off .label, .row.off .desc { opacity: .55; }
+  .label { font-weight: 600; }
+  .desc { grid-column: 1 / -1; color: var(--dim); font-size: 12.5px; }
+  .control { display: flex; gap: 8px; align-items: center; white-space: nowrap; }
+  .control input[type=number] { width: 72px; padding: 3px 5px; text-align: right; }
+  .control input[type=range] { width: 160px; }
+  input[type=checkbox], input[type=range] { accent-color: var(--accent); }
+  table.rates { grid-column: 1 / -1; border-collapse: collapse; margin: 6px 0 2px; font-size: 12.5px; }
+  table.rates th, table.rates td { text-align: left; padding: 3px 14px 3px 0; border-bottom: 1px solid var(--line); }
+  table.rates th { color: var(--dim); font-weight: 500; }
+  table.rates td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .actions { display: flex; gap: 8px; margin-top: 16px; align-items: center; flex-wrap: wrap; position: sticky; bottom: 0; padding: 10px 0; background: Canvas; }
+  .actions .space { flex: 1; }
+  button { padding: 6px 14px; }
+  #dirty { color: var(--warn); font-size: 12px; }
+  #status { color: var(--dim); min-height: 1.4em; }
+</style>
+</head>
+<body>
+<h1>Prontera vendors</h1>
+<p class="note" id="about"></p>
+<p class="note">A living player market on Prontera's main road. Changes take effect when the server restarts.</p>
+<div id="groups"></div>
+
+<div class="actions">
+  <button id="defaults">Reset to defaults</button>
+  <span id="dirty"></span>
+  <span class="space"></span>
+  <button id="save">Save</button>
+  <button id="apply">Save and restart server</button>
+</div>
+<div id="status"></div>
+
+<script>
+// The settings come from window.modSettings.get() (what mod.json declares,
+// with the values in force) and go back through set(), which the app checks
+// against mod.json as it does for the Mods tab. Defaults are read from the
+// mod's own mod.json. A setting this page does not place still shows, under
+// "Other", so a new one in mod.json is never hidden.
+const $ = id => document.getElementById(id);
+const status = text => { $('status').textContent = text; };
+
+const GROUPS = [
+  { title: 'Sell stalls', keys: ['sell_shops', 'vendors', 'price_pct'],
+    note: 'Fake players vending on the inner sidewalks and the rows east of the fountain.' },
+  { title: 'Buy stalls', keys: ['buy_shops', 'buy_stalls'],
+    note: 'Fake players with buying stores on the outer sidewalks and the rows west of the fountain.' },
+  { title: 'The street', keys: ['rotation_minutes', 'respect_limit'] },
+  { title: 'Shouts', keys: ['callouts', 'callout_seconds'] },
+  { title: 'Customers at your stalls', keys: ['stall_customers', 'stall_customers_pace'],
+    note: 'Customers for the vending stalls you open yourself, online or on @autotrade.' },
+  { title: 'Sellers at your buying stores', keys: ['store_sellers', 'store_sellers_pace'],
+    note: 'Players bringing loot to the buying stores you open yourself.' },
+  { title: 'While the server is off', keys: ['customers_downtime'] },
+  { title: 'Dynamic market', keys: ['dynamic_market', 'market_strength', 'market_recovery_hours', 'market_news'],
+    note: 'Prices react to trades and news, and drift back to the price list over time. The market board at Prontera (131, 218) shows the movers.' },
+];
+// Which switch a setting depends on: shown dimmed while that switch is off.
+const NEEDS = {
+  vendors: 'sell_shops', price_pct: 'sell_shops', buy_stalls: 'buy_shops',
+  callout_seconds: 'callouts', stall_customers_pace: 'stall_customers', store_sellers_pace: 'store_sellers',
+  market_strength: 'dynamic_market', market_recovery_hours: 'dynamic_market', market_news: 'dynamic_market',
+};
+// Customers a day at 100 % pace, a fair price, in Prontera (the generator's
+// BuyersPerDay / SellersPerDay at DEMAND_SCALE 3). Other maps run at 75 %.
+const RATES = {
+  stall_customers_pace: { what: 'Your stall sells', unit: 'customer', rows: [
+    ['Items fake buyers want (Elunium, Strawberry, their loot)', 36, 75],
+    ['Other everyday items', 12, 12],
+    ['Equipment, cards', 6, 9],
+  ], foot: 'A customer takes 1–5 (cheap items 5–50). Under market up to 3× as often; at 1.5× market about a tenth; at 2× never.' },
+  store_sellers_pace: { what: 'Your buying store wants', unit: 'seller', rows: [
+    ['Common loot (Jellopy, Sticky Mucus)', 72, 72],
+    ['Uncommon drops', 18, 36],
+    ['Rare drops', 3, 6],
+    ['MVP-only items', 0, 0],
+  ], foot: 'A seller brings a batch. A better offer brings more; none come when an NPC pays as much.' },
+};
+
+let declared = [];          // settings as get() gave them
+const values = {};          // key -> value now on the page
+const saved = {};           // key -> value last saved
+let defaults = {};          // key -> default from mod.json
+const rows = {};            // key -> { row, sync() }
+
+function every(perDay) {
+  if (perDay <= 0) return 'never';
+  const minutes = 1440 / perDay;
+  if (minutes < 1) return 'several a minute';
+  if (minutes < 90) return `every ${Math.round(minutes)} min`;
+  const hours = minutes / 60;
+  return `every ${hours < 10 ? Math.round(hours * 10) / 10 : Math.round(hours)} h`;
+}
+
+function ratesTable(key) {
+  const spec = RATES[key];
+  const table = document.createElement('table');
+  table.className = 'rates';
+  const fill = () => {
+    const pace = (values[key] || 100) / 100;
+    table.replaceChildren();
+    const head = table.insertRow();
+    for (const t of [spec.what, `${spec.unit[0].toUpperCase() + spec.unit.slice(1)}s a day`, 'About one']) {
+      const th = document.createElement('th'); th.textContent = t; head.append(th);
+    }
+    for (const [label, lo, hi] of spec.rows) {
+      const tr = table.insertRow();
+      const a = lo * pace, b = hi * pace;
+      tr.insertCell().textContent = label;
+      const n = tr.insertCell(); n.className = 'n';
+      n.textContent = a === b ? `${Math.round(a)}` : `${Math.round(a)}–${Math.round(b)}`;
+      tr.insertCell().textContent = a === b ? every(a) : `${every(b)}–${every(a).replace('every ', '')}`; // more a day = sooner
+    }
+    const foot = table.insertRow().insertCell();
+    foot.colSpan = 3; foot.style.color = 'var(--dim)'; foot.style.borderBottom = '0';
+    foot.textContent = `At ${values[key]} % pace, a fair price, in Prontera; other maps 75 %. ${spec.foot}`;
+  };
+  return { table, fill };
+}
+
+function control(s) {
+  const wrap = document.createElement('span');
+  wrap.className = 'control';
+  if (s.type === 'boolean') {
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!values[s.key];
+    cb.onchange = () => { values[s.key] = cb.checked; changed(); };
+    wrap.append(cb);
+    return { wrap, set: v => { cb.checked = !!v; } };
+  }
+  if (s.type === 'number') {
+    const num = document.createElement('input');
+    num.type = 'number';
+    if (s.min !== undefined) num.min = s.min;
+    if (s.max !== undefined) num.max = s.max;
+    num.step = 1;
+    num.value = values[s.key];
+    const parts = [num];
+    let range = null;
+    if (RATES[s.key]) {
+      range = document.createElement('input');
+      range.type = 'range';
+      range.min = s.min ?? 1; range.max = Math.min(s.max ?? 1000, 1000); range.step = 10;
+      range.value = values[s.key];
+      range.oninput = () => { num.value = range.value; values[s.key] = Number(range.value); changed(); };
+      parts.unshift(range);
+    }
+    num.oninput = () => {
+      const v = Number(num.value);
+      if (num.value === '' || !Number.isFinite(v)) return;
+      values[s.key] = Math.round(v);
+      if (range) range.value = values[s.key];
+      changed();
+    };
+    num.onchange = () => {
+      let v = Math.round(Number(num.value));
+      if (!Number.isFinite(v)) v = saved[s.key];
+      if (s.min !== undefined) v = Math.max(s.min, v);
+      if (s.max !== undefined) v = Math.min(s.max, v);
+      values[s.key] = v; num.value = v; if (range) range.value = v;
+      changed();
+    };
+    const pct = /pct|pace|strength/.test(s.key) ? '%' : /minutes/.test(s.key) ? 'min' : /hours/.test(s.key) ? 'h' : /seconds/.test(s.key) ? 's' : '';
+    if (pct) { const u = document.createElement('span'); u.textContent = pct; parts.push(u); }
+    wrap.append(...parts);
+    return { wrap, set: v => { num.value = v; if (range) range.value = v; } };
+  }
+  const text = document.createElement('input');
+  text.type = 'text';
+  if (s.maxLength) text.maxLength = s.maxLength;
+  text.value = values[s.key] ?? '';
+  text.oninput = () => { values[s.key] = text.value; changed(); };
+  wrap.append(text);
+  return { wrap, set: v => { text.value = v ?? ''; } };
+}
+
+function rowFor(s) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  const label = document.createElement('span');
+  label.className = 'label';
+  label.textContent = s.label || s.key;
+  const ctl = control(s);
+  const desc = document.createElement('span');
+  desc.className = 'desc';
+  desc.textContent = s.description || '';
+  row.append(label, ctl.wrap, desc);
+  let rates = null;
+  if (RATES[s.key]) { rates = ratesTable(s.key); row.append(rates.table); }
+  const sync = () => {
+    row.classList.toggle('changed', values[s.key] !== saved[s.key]);
+    if (NEEDS[s.key]) row.classList.toggle('off', !values[NEEDS[s.key]]);
+    if (rates) rates.fill();
+  };
+  rows[s.key] = { row, sync, set: ctl.set };
+  return row;
+}
+
+function render() {
+  const placed = new Set();
+  const root = $('groups');
+  root.replaceChildren();
+  const byKey = Object.fromEntries(declared.map(s => [s.key, s]));
+  const groups = GROUPS.map(g => ({ ...g, keys: g.keys.filter(k => byKey[k]) })).filter(g => g.keys.length);
+  const other = declared.filter(s => !GROUPS.some(g => g.keys.includes(s.key))).map(s => s.key);
+  if (other.length) groups.push({ title: 'Other', keys: other });
+  for (const g of groups) {
+    const h = document.createElement('h2'); h.textContent = g.title; root.append(h);
+    if (g.note) { const p = document.createElement('p'); p.className = 'note'; p.textContent = g.note; root.append(p); }
+    const box = document.createElement('div'); box.className = 'group';
+    for (const k of g.keys) { box.append(rowFor(byKey[k])); placed.add(k); }
+    root.append(box);
+  }
+}
+
+function changed() {
+  for (const r of Object.values(rows)) r.sync();
+  const n = declared.filter(s => values[s.key] !== saved[s.key]).length;
+  $('dirty').textContent = n ? `${n} unsaved change${n === 1 ? '' : 's'}` : '';
+}
+
+async function run(button, work, done) {
+  button.disabled = true;
+  try { await work(); status(done); }
+  catch (e) { status('Error: ' + (e && e.message || e)); }
+  button.disabled = false;
+}
+
+async function save() {
+  const out = Object.fromEntries(declared.map(s => [s.key, values[s.key]]));
+  await window.modSettings.set(out);
+  Object.assign(saved, out);
+  changed();
+}
+
+(async () => {
+  try {
+    const mod = await window.modSettings.get();
+    const era = mod.context && mod.context.era === 'pre-renewal' ? 'pre-renewal' : 'renewal';
+    $('about').textContent = `${mod.name} ${mod.version} · ${era}` + (mod.context && mod.context.appVersion ? ` · app ${mod.context.appVersion}` : '')
+      + (mod.enabled ? '' : ' · this mod is switched off in the Mods tab');
+    declared = mod.settings || [];
+    for (const s of declared) { values[s.key] = s.value; saved[s.key] = s.value; }
+    try {
+      const manifest = await (await fetch('../mod.json')).json();
+      defaults = Object.fromEntries((manifest.settings || []).map(s => [s.key, s.default]));
+    } catch { $('defaults').disabled = true; }
+    render();
+    changed();
+  } catch (e) {
+    status('Could not load: ' + (e && e.message || e));
+  }
+})();
+
+$('defaults').onclick = () => {
+  for (const s of declared) {
+    if (!(s.key in defaults)) continue;
+    values[s.key] = defaults[s.key];
+    rows[s.key].set(values[s.key]);
+  }
+  changed();
+  status('Defaults restored on the page. Save to keep them.');
+};
+$('save').onclick = () => run($('save'), save, 'Saved. The changes take effect when the server restarts.');
+$('apply').onclick = () => run($('apply'), async () => {
+  await save();
+  status('Restarting the server…');
+  await window.modSettings.apply();
+}, 'Saved and applied.');
+</script>
+</body>
+</html>

@@ -40,6 +40,23 @@ test('a changed setting is pending; the same values are not', () => {
   assert.deepEqual(M.pending({ baseline, checked, present: present(mods), settings: { alpha: { rate: 1 } }, settingsBaseline }), []);
 });
 
+test('options are kept across a redraw only for a mod whose Options box is drawn again', () => {
+  // alpha's box was drawn again; beta is gone; gamma was updated to a
+  // version with its own settings page, so its box is not drawn any more.
+  const settings = { alpha: { rate: 2 }, beta: { rate: 3 }, gamma: { vendors: 20 } };
+  const settingsBaseline = { alpha: JSON.stringify({ rate: 1 }) };
+  const kept = M.keptOptions(settings, settingsBaseline);
+  assert.deepEqual(kept, { alpha: { rate: 2 } });
+  const baseline = M.adopt(null, [...mods, { name: 'gamma', enabled: true }]);
+  const checked = { alpha: true, beta: false, gamma: true };
+  const present = ['alpha', 'beta', 'gamma'];
+  assert.deepEqual(M.pending({ baseline, checked, present, settings: kept, settingsBaseline }),
+    [{ name: 'alpha', change: 'settings' }]);
+  // Before: gamma's old entry, with no baseline, was a change that never went away.
+  assert.deepEqual(M.pending({ baseline, checked, present, settings, settingsBaseline }).map(c => c.name),
+    ['alpha', 'beta', 'gamma']);
+});
+
 test('an install that is on waits for Apply; a skin installs itself', () => {
   let baseline = M.adopt(null, mods);
   const after = [...mods, { name: 'gamma', enabled: true }, { name: 'blue', enabled: true, kind: 'skin' }];
@@ -106,4 +123,32 @@ test('the update count reads as words for a screen reader', () => {
   assert.equal(M.updateCountLabel(0), '');
   assert.equal(M.updateCountLabel(1), '1 mod update available');
   assert.equal(M.updateCountLabel(3), '3 mod updates available');
+});
+
+test('an update of a mod that is on waits for Apply; one that is off does not', () => {
+  const mods = [{ name: 'a', enabled: true }, { name: 'b', enabled: false }];
+  const baseline = M.adopt(null, mods);
+  const checked = { a: true, b: false };
+  assert.deepEqual(M.pending({ baseline, checked, present: ['a', 'b'], updated: ['a', 'b'] }),
+    [{ name: 'a', change: 'updated' }]);
+  // Switched off as well: one change for the mod, not two.
+  assert.deepEqual(M.pending({ baseline, checked: { a: false, b: false }, present: ['a', 'b'], updated: ['a'] }),
+    [{ name: 'a', change: 'off' }]);
+});
+
+test('the Apply bar says how many changes and what each one is', () => {
+  const changes = [{ name: 'a', change: 'on' }, { name: 'b', change: 'settings' }, { name: 'c', change: 'updated' }];
+  assert.match(M.pendingText(changes), /^3 changes to mods not applied yet/);
+  assert.match(M.pendingText(changes.slice(0, 1)), /^1 change to mods/);
+  assert.equal(M.pendingDetail(changes), 'a on · b options changed · c updated');
+});
+
+test('the game needs reopening only for a mod with client layers, or one it cannot tell', () => {
+  const client = { server: false, window: true };
+  assert.equal(M.needsReopen([{ name: 'server', change: 'on' }], client), false);
+  assert.equal(M.needsReopen([{ name: 'server', change: 'on' }, { name: 'window', change: 'off' }], client), true);
+  // Not in the listing (removed, or an older supervisor without the column).
+  assert.equal(M.needsReopen([{ name: 'gone', change: 'removed' }], client), true);
+  assert.equal(M.needsReopen([{ name: 'server', change: 'on' }], null), true);
+  assert.equal(M.needsReopen([], client), false);
 });

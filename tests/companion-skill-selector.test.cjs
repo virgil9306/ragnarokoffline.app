@@ -91,11 +91,11 @@ test('the selection is threaded through ALL FOUR recall touchpoints', () => {
 		'the reader must test the column for NULL rather than copying it blindly');
 
 	// 3. the call site passes it
-	assert.match(e, /mode_, duty_, heal_at_, emergency_at_,\s*\n\s*skill_preset\);/,
+	assert.match(e, /mode_, duty_, heal_at_, emergency_at_,\s*\n\s*skill_preset(, gear_detail[^;\n]*)?\);/,
 		'recall_companions must PASS the selection to recall_one_companion');
 
 	// 4. the callee declares it
-	assert.match(e, /int mode_, int duty_, int heal_at_, int emergency_at_,\s*\n\s*const char\* skill_preset\)/,
+	assert.match(e, /int mode_, int duty_, int heal_at_, int emergency_at_,\s*\n\s*const char\* skill_preset(, const char\* gear_detail)?\)/,
 		'recall_one_companion must take the selection as a parameter');
 
 	// and restores it, gated on non-NULL so "auto" stays auto

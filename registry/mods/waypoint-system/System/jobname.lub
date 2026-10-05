@@ -1,0 +1,13 @@
+-- Which sprite NPC 19520 (the waypoint warper) uses: data/sprite/npc/wp_npc.spr
+-- and .act, shipped in this mod's data/ folder. The client lower-cases the name
+-- and looks under data/sprite/npc/ because 19520 is in its NPC range
+-- (10001-19998).
+--
+-- 19510 is card-remover's (VADON): rows from two mods with one id overwrite
+-- each other, so every mod needs its own id.
+--
+-- Only this one row. The app loads it after the client's own table and merges
+-- it by id, so every other NPC and monster keeps its sprite.
+JobNameTable = {
+	[19520] = "WP_NPC",
+}

@@ -72,7 +72,27 @@ test('only gear the owner gave comes back, and the record of it survives a resta
 		'population_engine', 'cp_companion_persistence.sql'), 'utf8');
 	assert.match(sql, /`given_mask`\s+INT UNSIGNED\s+NOT NULL DEFAULT 0/);
 	assert.match(functionBody('void population_engine_persist_companion_gear('), /given_mask=%u/);
-	assert.match(functionBody('int population_engine_recall_companions('), /skill_preset, given_mask"/);
+	assert.match(functionBody('int population_engine_recall_companions('), /skill_preset, given_mask[,"]/);
+});
+
+test('given gear keeps its refine, cards and options across a recall', () => {
+	const sql = fs.readFileSync(path.join(ROOT, 'third-party', 'population-engine', 'files', 'sql-files',
+		'population_engine', 'cp_companion_persistence.sql'), 'utf8');
+	assert.match(sql, /`gear_detail`\s+TEXT\s+NULL DEFAULT NULL/);
+	const detail = functionBody('static std::string pop_companion_gear_detail(');
+	for (const field of ['it.refine', 'it.card[0]', 'it.card[3]', 'it.option[o].id', 'it.unique_id'])
+		assert.ok(detail.includes(field), `the saved detail must carry ${field}`);
+	// Headgear is saved by its look in head_*_nameid; the detail must carry the real item.
+	assert.ok(detail.includes('it.nameid'), 'the saved detail must carry the item id, not the look');
+	const save = functionBody('void population_engine_persist_companion_gear(');
+	assert.match(save, /gear_detail='%s'/, 'every gear snapshot writes the detail');
+	assert.match(save, /Sql_Query\(mmysql_handle, "%s", q\.data\(\)\)/, 'the statement is data, never a format');
+	assert.match(functionBody('int population_engine_recall_companions('), /gear_detail FROM/);
+	const recall = functionBody('static void population_engine_recall_one_companion(');
+	assert.ok(recall.indexOf('pop_companion_restore_gear_detail(') < recall.indexOf('status_calc_pc('),
+		'the details must be back before the stats are worked out from them');
+	// A re-recruit keeps the detail only for the same owner, as given_mask does.
+	assert.match(engine, /gear_detail=IF\(owner_account_id=VALUES\(owner_account_id\) AND owner_char_id IN \(0, VALUES\(owner_char_id\)\), gear_detail, NULL\)/);
 });
 
 test('a job advance never strands player gear in the unpersisted inventory', () => {

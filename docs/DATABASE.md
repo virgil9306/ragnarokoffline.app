@@ -281,6 +281,7 @@ in `vendor/rathena/sql-files/main.sql`; these are the ones worth knowing.
 | `char_reg_num`, `char_reg_str`, `global_acc_reg_num`, `global_acc_reg_str` | script variables — where most NPC and quest state actually lives |
 | `sc_data` | status changes saved across a logout |
 | `guild`, `party`, `mail`, `vendings` | the social side |
+| `picklog`, `npclog`, `atcommandlog`, `cashlog`, `loginlog` | rAthena's logs, from `sql-files/logs.sql`: every item gained or lost (with how: vending, trade, shop, script...), `logmes` lines, `@` commands. `zenylog` and `chatlog` exist but stay empty, because the stock config doesn't log them. A mod can read them; see [Knowing what players did](MODDING.md#knowing-what-players-did-rathenas-logs) |
 | `cp_population_stats` | ours, not rAthena's: the population engine's live shell count |
 | `login_tokens` | one-time login tokens for [Google/Apple sign-in](FRIENDS_SHARING.md#sign-in-with-google-or-apple): the SHA-256 only, the account, an expiry 60 seconds out, and whether it was used. From our rAthena fork; rows expire and are deleted as new ones are issued |
 | `app_sign_in_identities` | ours: which game account a Google or Apple sign-in plays as, by the provider's id for the person and the email it verified |

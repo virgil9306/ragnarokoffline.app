@@ -10,11 +10,11 @@ const { DEFAULTS, overridden, readPorts, gameTargets } = require('../electron/po
 const { FriendGateway } = require('../electron/sharing/gateway');
 const probe = require('../electron/listener-probe');
 
-const MOVED = { RAGNAROK_OFFLINE_ASSET_PORT: '13338', RAGNAROK_OFFLINE_LOGIN_PORT: '16900', RAGNAROK_OFFLINE_CHAR_PORT: '16121', RAGNAROK_OFFLINE_MAP_PORT: '15121', RAGNAROK_OFFLINE_AGENT_PORT: '17490' };
+const MOVED = { RAGNAROK_OFFLINE_ASSET_PORT: '13338', RAGNAROK_OFFLINE_LOGIN_PORT: '16900', RAGNAROK_OFFLINE_CHAR_PORT: '16121', RAGNAROK_OFFLINE_MAP_PORT: '15121', RAGNAROK_OFFLINE_WEB_PORT: '18888', RAGNAROK_OFFLINE_AGENT_PORT: '17490' };
 
 test('with no override nothing is spawned and the ports are the ones the app always used', () => {
   const run = () => { throw new Error('must not run the supervisor'); };
-  assert.deepEqual(readPorts('/nonexistent/ragnarok-stack', { HOME: '/x' }, run), { asset: 3338, login: 6900, char: 6121, map: 5121, agent: 7490 });
+  assert.deepEqual(readPorts('/nonexistent/ragnarok-stack', { HOME: '/x' }, run), { asset: 3338, login: 6900, char: 6121, map: 5121, web: 8888, agent: 7490 });
   // An empty variable is unset, as the supervisor reads it.
   assert.equal(overridden({ RAGNAROK_OFFLINE_MAP_PORT: ' ' }), false);
   assert.equal(overridden({ RAGNAROK_OFFLINE_MAP_PORT: '15121' }), true);
@@ -23,7 +23,7 @@ test('with no override nothing is spawned and the ports are the ones the app alw
 });
 
 test('an override is the supervisor\'s answer, and a refusal is never a quiet fallback to the defaults', () => {
-  const answer = JSON.stringify({ asset: 13338, login: 16900, char: 16121, map: 15121, agent: 17490 });
+  const answer = JSON.stringify({ asset: 13338, login: 16900, char: 16121, map: 15121, web: 18888, agent: 17490 });
   const seen = [];
   const ok = (bin, args, options) => { seen.push([bin, args, options.env.RAGNAROK_OFFLINE_LOGIN_PORT]); return { status: 0, stdout: answer + '\n', stderr: '' }; };
   assert.deepEqual(readPorts('/w/bin/ragnarok-stack', MOVED, ok), JSON.parse(answer));
@@ -47,7 +47,7 @@ test('the proxy allowlist and the friends gateway follow the moved game servers'
   assert.deepEqual([...usual.socketPaths].sort(), ['/ws/127.0.0.1:5121', '/ws/127.0.0.1:6121', '/ws/127.0.0.1:6900']);
   assert.equal(usual.loginPath, '/ws/127.0.0.1:6900');
 
-  const moved = new FriendGateway({ origin: 'https://play.example.com', register, ports: { asset: 13338, login: 16900, char: 16121, map: 15121, agent: 17490 } });
+  const moved = new FriendGateway({ origin: 'https://play.example.com', register, ports: { asset: 13338, login: 16900, char: 16121, map: 15121, web: 18888, agent: 17490 } });
   assert.equal(moved.upstreamPort, 13338);
   assert.deepEqual([...moved.socketPaths].sort(), ['/ws/127.0.0.1:15121', '/ws/127.0.0.1:16121', '/ws/127.0.0.1:16900']);
   // The login packet limits apply to the moved login server, not to 6900.
@@ -64,7 +64,7 @@ test('the listener check probes the moved ports', () => {
 // checked against each other and not only against this file's idea of them.
 const built = path.join(__dirname, '..', 'stack', 'target', 'debug', 'ragnarok-stack' + (process.platform === 'win32' ? '.exe' : ''));
 test('the built supervisor answers `ports` the way the shell reads it', { skip: !fs.existsSync(built) && 'stack is not built' }, () => {
-  assert.deepEqual(readPorts(built, { ...process.env, ...MOVED }), { asset: 13338, login: 16900, char: 16121, map: 15121, agent: 17490 });
+  assert.deepEqual(readPorts(built, { ...process.env, ...MOVED }), { asset: 13338, login: 16900, char: 16121, map: 15121, web: 18888, agent: 17490 });
   assert.throws(() => readPorts(built, { ...process.env, RAGNAROK_OFFLINE_CHAR_PORT: '6900' }), /RAGNAROK_OFFLINE_LOGIN_PORT/);
   assert.throws(() => readPorts(built, { ...process.env, RAGNAROK_OFFLINE_MAP_PORT: '80' }), /1024 to 65535/);
 });

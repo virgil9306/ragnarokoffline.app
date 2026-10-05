@@ -153,6 +153,16 @@ function makePass(spec, report) {
 			gl.bindTexture(gl.TEXTURE_2D, inputTexture);
 			gl.uniform1i(location(gl, 'uTexture'), 0);
 			const depth = PostProcess.sceneDepth?.() || null;
+			// The scene's depth is the depth attachment of the buffer the scene
+			// was drawn into, and the ping-pong hands that same buffer back as
+			// this pass's output whenever the pass runs second, fourth, ... and
+			// is not the last (bloom or blur before it, FXAA, CAS, vibrance,
+			// ... after). Reading an attachment of the target is a feedback
+			// loop: WebGL drops the draw and the 3D view goes black. Passes
+			// draw without the depth test, so take the depth off the target
+			// for this draw and put it back after.
+			const detach = Boolean(depth && outputFbo && outputFbo.depthTexture === depth);
+			if (detach) gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, null, 0);
 			gl.activeTexture(gl.TEXTURE1);
 			gl.bindTexture(gl.TEXTURE_2D, depth || white);
 			gl.uniform1i(location(gl, 'uDepth'), 1);
@@ -189,6 +199,12 @@ function makePass(spec, report) {
 			}
 
 			gl.drawArrays(gl.TRIANGLES, 0, 6);
+			if (detach) gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, depth, 0);
+			// Leave nothing of ours bound past the pass: the next frame's scene
+			// is drawn into a buffer whose depth this may be.
+			gl.activeTexture(gl.TEXTURE1);
+			gl.bindTexture(gl.TEXTURE_2D, null);
+			gl.activeTexture(gl.TEXTURE0);
 			PostProcess.afterRenderPass(gl);
 		},
 		clean(gl) {

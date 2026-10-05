@@ -105,6 +105,8 @@ the same map. It can be revived in either of two ways:
   members, including real players and other companions. Their virtual Blue
   Gemstone supply is unlimited because shells have no player-accessible
   inventory.
+- Minstrel, Wanderer, Troubadour and Trouvere companions revive dead party
+  members with Death Valley, at the level they have learned.
 - A real player can use a Yggdrasil Leaf on the dead companion.
 
 Level 3 Resurrection restores 50% HP. Resurrection remains available in every
@@ -123,15 +125,38 @@ window with four tabs.
 | Tab | What it does |
 | --- | --- |
 | Party | The saved companion list, with each one's job, level and state. Set duty, summon, bench, favorite, or refresh. |
-| Summon | Draft a brand-new companion of any job, grouped 1st / 2nd / Trans / 3rd / 4th. When companions are hired (below), only your own tier's jobs, with the fee. |
+| Summon | Draft a brand-new companion of any job, grouped 1st / 2nd / Trans / 3rd / 4th, as Male, Female or Random. When companions are hired (below), only your own tier's jobs, with the fee. |
 | Battle | Stance (Free / Standard / Hold), Taunt and Recall, and the healer thresholds. |
-| Gear | Take back equipment you gave the companion, per slot (`weapon`, `shield`, `armor`, …) or all of it. What it was generated or drafted with is its own and stays on it. Gear you gave that a new job cannot wear is handed back when it advances. |
+| Gear | Take back equipment you gave the companion, per slot (`weapon`, `shield`, `armor`, …) or all of it. What it was generated or drafted with is its own and stays on it; when you take a piece back, it puts its own gear back on in that slot. Gear you gave that a new job cannot wear is handed back when it advances. |
+
+Each companion on the Party tab has a **Skills** button, which lists the skills
+it may use; untick one and it stops using it. The list order is also the
+priority between buffs that cancel each other: a Bard's songs, a Dancer's
+dances, stances such as Banding and Prestige. The companion keeps up the highest
+one it has ticked, and doesn't cast a lower one over it until the higher one
+runs out. To have it use a different song, untick the ones above it. A
+performance already playing (an ensemble, or any pre-renewal song or dance)
+holds until it ends, whatever its place in the list. A skill that requires the
+buff it ends, such as an Inquisitor's Judge after First Faith Power, still takes
+over, so a chain runs in order.
 
 The window is a real client component, not an overlay: it is draggable, it
 remembers its position, and clicks aimed at it do not reach the game. Each
 control sends the same packet that typing the command sends, so the server
 cannot tell a button press from a keystroke — the buttons and the commands below
 are two ways to say the same thing.
+
+### Weapon rules
+
+By default a companion uses every skill it has, whatever it is holding: a
+Minstrel sings with a bow in hand. **Settings → Population → Weapon rules**
+holds companions, and every other fake player, to the weapon requirements a
+player has. With it on, a skill the companion's weapon can't use is skipped
+until you trade it a weapon that can. Some jobs start with gear that doesn't fit
+all their skills: Clowns, Minstrels and Troubadours start with a bow and need an
+instrument to sing, and Gypsies, Wanderers and Trouveres need a whip to dance.
+Arrows, gemstones and other item costs are never needed either way, since a
+companion has no inventory to manage.
 
 ## Free or hired
 
@@ -152,11 +177,33 @@ you already have, from the Party tab or `@companion summon`, is always free.
 `@CPTERMS|mode|tier|zeny|item|amount|item name|jobs`, which is what the
 Companions window reads.
 
+`@companion list raw` prints your saved companions the same way, one line each
+and then `@CPEND|count`, which is how the Companions window draws its rows:
+
+`@CP|name|job|base_level|active|favorite|live_level|live_job|pet|duty`
+
+- `active` and `favorite` are 0 or 1. `live_level` and `live_job` are the
+  summoned companion's current values, which differ from the saved ones once it
+  has levelled.
+- `pet`: -1 when the job cannot have one, otherwise 0 off or 1 on.
+- `duty`: the duty the server holds for it: 0 none yet, 1 tank, 2 support,
+  3 attacker. The window shows this one, not the last button pressed: the server
+  changes the duty of a summoned companion only, so pressing Duty on one that is
+  not out goes back to what the server holds.
+
 ## Current scope
 
 - Companions can be recruited from the existing Population Engine population, or
-  **drafted directly** (`@companion draft <job>`, or the Summon tab) without
-  hunting the world for a matching character.
+  **drafted directly** (`@companion draft <job> [name] [m|f]`, or the Summon tab)
+  without hunting the world for a matching character.
+- A drafted companion's sex is yours to choose: `m`, `f`, `male` or `female`, as
+  the first or the last word after the job (`@companion draft Knight f Aria` or
+  `@companion draft Knight Aria f`). Leave it out and it is either, at random. A
+  job that is only ever one sex keeps it: Bard, Clown, Minstrel, Troubadour and
+  Kagerou are male; Dancer, Gypsy, Wanderer, Trouvere and Oboro are female. The
+  Summon tab marks those jobs ♂ or ♀. The sex is saved with the companion, so it
+  stays the same when you call it back. A Companion Recruiter does not ask; its
+  hires are either sex.
 - Classes, equipment, skills, looks, names, and ambient chat come from the
   editable YAML files in `third-party/population-engine/files/db/`.
 - Combat mode, duty and the healer thresholds are stored per companion and

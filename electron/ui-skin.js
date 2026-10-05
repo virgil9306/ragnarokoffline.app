@@ -63,7 +63,10 @@ function grfNames(file) {
 			return buf;
 		};
 		const header = read(0, 46);
-		if (header.toString('latin1', 0, 15) !== 'Master of Magic') throw new Error(`${path.basename(file)} is not a GRF`);
+		// "Event Horizon" is GRF Editor's signature for the same layout, NUL-terminated with other
+		// bytes after it; iRO's 2026 data.grf carries it. Compared as the asset server does.
+		const signature = header.toString('latin1', 0, 15).split('\0')[0];
+		if (signature !== 'Master of Magic' && signature !== 'Event Horizon') throw new Error(`${path.basename(file)} is not a GRF`);
 		let version = u32(header, 42);
 		if (version >> 8 === 0x01) return [];
 		if (version !== 0x200 && version !== 0x300) throw new Error(`${path.basename(file)} is GRF version 0x${version.toString(16)}, which this does not read`);

@@ -32,7 +32,9 @@ const USAGE = `usage: rotest <command> [args]
 
 world:   prepare | up | down | backup      the disposable world (tests/e2e/world.cjs); up also makes tester
          world tester                      make the tester account in an existing world
-daemon:  start [--headed] | stop | status  asset server + browser, kept running
+daemon:  start [--headed] [--size WxH]     asset server + browser, kept running (size default 1280x800;
+                                           1920x1080 for recording)
+         stop | status
 server:  server <args>                     the world's ragnarok-stack: logs map 100, sql "...", status
 
   login [user] [pass]        default tester / tester123 (made by world up); ragnarok / ragnarok is the GM-sprite account
@@ -45,13 +47,19 @@ server:  server <args>                     the world's ragnarok-stack: logs map 
   hover <x> <y> [--px]       put the cursor on a cell (or pixels); what the client sees there
   shot [name]                screenshot; prints the file
   walk <x> <y>               click that map cell, wait for the walk to end
-  attack [gid|nearest]       click a monster (a real click on it)
+  attack [gid|nearest|job:<mob id>] [--quick]  click a monster (a real click on it)
   skill <id> [level] [--target <gid|nearest>] [--cell <x> <y>] [--burst N [--every ms]]
                              cast via the skill window's path, then click the target
+                             --quick: return once cast (no screenshots or wait), for recording
   click <x> <y> [right]      raw mouse click at page pixels
   key <key>                  press a key (Playwright names: Enter, Escape, F1, Alt+E ...)
   eval <js>                  run JS in the page (window.roAgent is there); prints the result
   wait <ms>
+  camera [zoom Z] [pitch P] [yaw Y] [--over ms]
+                             set the camera (prints it); --over moves there gradually, for pans
+                             and orbits. Defaults: zoom 125 (smaller is closer), pitch 230, yaw 0
+  record start <name> [--dir D]  start recording video + game audio (music and effects)
+  record stop                stop; writes <name>.mp4 (H.264/AAC, 30 fps) to D, default $ROTEST_OUT/clips
   errors                     every console/page error since start
 
 Environment: RO_E2E_WORLD (default artifacts/agent-world), RO_E2E_RUNTIME,
@@ -168,9 +176,63 @@ async function client(argv) {
 
 // ---------------------------------------------------------------- daemon side
 
+// Runs in the page before the client does. Everything Web Audio sends to the
+// speakers (the sound effects) is also routed to a recordable stream, and every
+// <audio> element that plays (the music) is remembered, so `record` can mix
+// the two. Nothing changes what is heard.
+function AUDIO_TAP() {
+    const taps = new Map();
+    const media = new Set();
+    const connect = AudioNode.prototype.connect;
+    AudioNode.prototype.connect = function (target, ...rest) {
+        const out = connect.call(this, target, ...rest);
+        try {
+            if (target instanceof AudioDestinationNode) {
+                const ctx = target.context;
+                if (!taps.has(ctx)) taps.set(ctx, ctx.createMediaStreamDestination());
+                connect.call(this, taps.get(ctx));
+            }
+        } catch {}
+        return out;
+    };
+    const play = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function () { media.add(this); return play.apply(this, arguments); };
+    let rec = null;
+    window.__recStart = () => {
+        const mix = new AudioContext();
+        const dest = mix.createMediaStreamDestination();
+        const joined = new Set();
+        // Map changes start new music elements: keep joining what appears.
+        const join = () => {
+            for (const d of taps.values()) if (!joined.has(d)) { joined.add(d); mix.createMediaStreamSource(d.stream).connect(dest); }
+            for (const el of media) if (!joined.has(el)) { try { mix.createMediaStreamSource(el.captureStream()).connect(dest); joined.add(el); } catch {} }
+        };
+        join();
+        const recorder = new MediaRecorder(dest.stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 192000 });
+        const chunks = [];
+        recorder.ondataavailable = e => chunks.push(e.data);
+        recorder.start(250);
+        rec = { mix, recorder, chunks, timer: setInterval(join, 500) };
+        return { effects: taps.size, music: media.size };
+    };
+    window.__recStop = async () => {
+        if (!rec) return '';
+        const r = rec; rec = null;
+        clearInterval(r.timer);
+        await new Promise(res => { r.recorder.onstop = res; r.recorder.stop(); });
+        r.mix.close();
+        const b = new Uint8Array(await new Blob(r.chunks).arrayBuffer());
+        let s = '';
+        for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+        return btoa(s);
+    };
+}
+
 async function daemon(flags) {
     const { chromium } = require('@playwright/test');
     const headed = flags.includes('--headed');
+    const sizeFlag = flags.indexOf('--size');
+    const [vw, vh] = (sizeFlag >= 0 ? flags[sizeFlag + 1] : '1280x800').split('x').map(Number);
     fs.mkdirSync(OUT, { recursive: true });
     const log = (...a) => console.log(new Date().toISOString(), ...a);
 
@@ -185,9 +247,11 @@ async function daemon(flags) {
         }
     }
 
-    const browser = await chromium.launch({ headless: !headed, args: ['--use-gl=angle', '--enable-webgl', '--ignore-gpu-blocklist'] });
-    const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    // Autoplay on: headless has no user gesture, and `record` wants the music.
+    const browser = await chromium.launch({ headless: !headed, args: ['--use-gl=angle', '--enable-webgl', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
+    const context = await browser.newContext({ viewport: { width: vw, height: vh } });
     await context.addInitScript(() => { try { localStorage.setItem('roAgent', '1'); } catch {} });
+    await context.addInitScript(AUDIO_TAP);
     const page = await context.newPage();
     const errors = [];
     let errorsSeen = 0;
@@ -243,10 +307,34 @@ async function daemon(flags) {
         const me = await player();
         if (spec === 'self' || String(spec) === String(me?.gid)) return me;
         const list = await agent('entities', [{ radius: 30 }]);
-        if (!spec || spec === 'nearest') return list.find(e => e.type === 'MOB' && !e.dead) || null;
+        // job:<monster id>: the nearest of that kind, so a stray native
+        // monster cannot take a scripted attack.
+        if (String(spec).startsWith('job:')) return list.find(e => e.type === 'MOB' && !e.dead && String(e.job) === String(spec).slice(4)) || null;
+        if (!spec || spec === 'nearest') {
+            // A monster standing behind the player is clicked through the
+            // player's own sprite, and the client picks the player instead.
+            const r = me?.pickRect;
+            const behind = e => r && e.click.x >= r.left && e.click.x <= r.right && e.click.y >= r.top && e.click.y <= r.bottom;
+            const mobs = list.filter(e => e.type === 'MOB' && !e.dead);
+            return mobs.find(e => !behind(e)) || mobs[0] || null;
+        }
         return list.find(e => String(e.gid) === String(spec)) || null;
     };
     const clickEntity = async (target, button = 'left') => {
+        // In melee the target's centre is often under the player's own sprite,
+        // and a click there picks the player. Aim at a part of the target's
+        // box the player does not cover.
+        let { x, y } = target.click;
+        const me = await player();
+        const r = me?.pickRect, t = target.pickRect;
+        const inside = (px, py) => r && px >= r.left && px <= r.right && py >= r.top && py <= r.bottom;
+        if (me && me.gid !== target.gid && t && inside(x, y)) {
+            for (const fy of [0.5, 0.3, 0.7, 0.15, 0.85]) {
+                const hit = [0.5, 0.25, 0.75, 0.1, 0.9].map(fx => [t.left + (t.right - t.left) * fx, t.top + (t.bottom - t.top) * fy]).find(([px, py]) => !inside(px, py));
+                if (hit) { [x, y] = hit; break; }
+            }
+        }
+        target = { ...target, click: { x, y } };
         await page.mouse.move(target.click.x, target.click.y);
         await page.waitForTimeout(120); // let a frame run so the client picks what is under the cursor
         const over = await agent('mouse');
@@ -273,7 +361,91 @@ async function daemon(flags) {
         return agent('chat', [8]).catch(() => []);
     };
 
+    // Recording. Chromium's tab capture does not start under Playwright
+    // ("Could not start video source"), so video is CDP's screencast -- a JPEG
+    // per composited frame, with its timestamp -- and audio is recorded in the
+    // page from what AUDIO_TAP collected. ffmpeg joins them on `record stop`.
+    let rec = null;
+    const record = {
+        start: async (name, dir) => {
+            if (rec) throw new Error(`already recording ${rec.name}`);
+            const work = path.join(OUT, 'rec-' + Date.now());
+            fs.mkdirSync(path.join(work, 'frames'), { recursive: true });
+            const audio = await page.evaluate(() => window.__recStart());
+            const cdp = await context.newCDPSession(page);
+            const frames = [];
+            cdp.on('Page.screencastFrame', f => {
+                const file = `f${String(frames.length).padStart(6, '0')}.jpg`;
+                fs.writeFileSync(path.join(work, 'frames', file), Buffer.from(f.data, 'base64'));
+                frames.push({ file, t: f.metadata.timestamp });
+                cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {});
+            });
+            await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 92, maxWidth: vw, maxHeight: vh, everyNthFrame: 1 });
+            rec = { name: (name || 'clip').replace(/[^\w.-]+/g, '_'), dir: path.resolve(dir || path.join(OUT, 'clips')), work, cdp, frames, at: Date.now() };
+            return { ok: true, recording: rec.name, audio };
+        },
+        stop: async () => {
+            if (!rec) throw new Error('not recording');
+            const r = rec; rec = null;
+            await r.cdp.send('Page.stopScreencast');
+            await r.cdp.detach().catch(() => {});
+            const b64 = await page.evaluate(() => window.__recStop());
+            const hasAudio = b64.length > 0;
+            if (hasAudio) fs.writeFileSync(path.join(r.work, 'audio.webm'), Buffer.from(b64, 'base64'));
+            // Frames can arrive out of order; each lasts until the next one.
+            const frames = r.frames.sort((a, b) => a.t - b.t);
+            if (frames.length < 2) throw new Error('no frames were captured');
+            let list = '';
+            frames.forEach((f, i) => { list += `file 'frames/${f.file}'\nduration ${((frames[i + 1]?.t ?? f.t + 1 / 30) - f.t).toFixed(4)}\n`; });
+            list += `file 'frames/${frames[frames.length - 1].file}'\n`;
+            fs.writeFileSync(path.join(r.work, 'list.txt'), list);
+            fs.mkdirSync(r.dir, { recursive: true });
+            const file = path.join(r.dir, r.name + '.mp4');
+            const ff = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', path.join(r.work, 'list.txt'),
+                ...(hasAudio ? ['-i', path.join(r.work, 'audio.webm')] : []),
+                '-vf', 'fps=30,format=yuv420p', '-c:v', 'libx264', '-crf', '16', '-preset', 'medium',
+                ...(hasAudio ? ['-c:a', 'aac', '-b:a', '192k', '-shortest'] : []), '-movflags', '+faststart', file], { encoding: 'utf8' });
+            if (ff.error || ff.status !== 0) throw new Error('ffmpeg failed: ' + (ff.error?.message || ff.stderr));
+            fs.rmSync(r.work, { recursive: true, force: true });
+            const span = frames[frames.length - 1].t - frames[0].t;
+            return { ok: true, file, seconds: Number(span.toFixed(2)), fps: Number((frames.length / span).toFixed(1)), audio: hasAudio };
+        },
+    };
+
     const commands = {
+        camera: async args => {
+            const want = {};
+            for (let i = 0; i < args.length; i += 2) {
+                if (['zoom', 'pitch', 'yaw', '--over'].includes(args[i])) want[args[i].replace('--', '')] = Number(args[i + 1]);
+                else throw new Error('camera [zoom Z] [pitch P] [yaw Y] [--over ms]');
+            }
+            const now = await page.evaluate(async w => {
+                const C = window.roAgent.modules.Camera;
+                const from = { zoom: C.zoomFinal, pitch: C.angleFinal[0], yaw: C.angleFinal[1] };
+                const to = { zoom: w.zoom ?? from.zoom, pitch: w.pitch ?? from.pitch, yaw: w.yaw ?? from.yaw };
+                const set = t => {
+                    // Smoothstep, so a pan starts and ends gently.
+                    const k = t * t * (3 - 2 * t);
+                    C.zoomFinal = from.zoom + (to.zoom - from.zoom) * k;
+                    C.angleFinal[0] = from.pitch + (to.pitch - from.pitch) * k;
+                    C.angleFinal[1] = from.yaw + (to.yaw - from.yaw) * k;
+                };
+                if (w.over > 0) {
+                    const t0 = performance.now();
+                    await new Promise(done => {
+                        const step = () => { const t = Math.min((performance.now() - t0) / w.over, 1); set(t); t < 1 ? requestAnimationFrame(step) : done(); };
+                        step();
+                    });
+                } else set(1);
+                return { zoom: C.zoomFinal, pitch: C.angleFinal[0], yaw: C.angleFinal[1] };
+            }, want);
+            return { ok: true, camera: now };
+        },
+        record: async ([sub, name, ...rest]) => {
+            if (sub === 'start') { const d = rest.indexOf('--dir'); return record.start(name, d >= 0 ? rest[d + 1] : undefined); }
+            if (sub === 'stop') return record.stop();
+            throw new Error('record start <name> [--dir D] | record stop');
+        },
         ping: async () => ({ ok: true }),
         status: async () => ({ ok: true, running: true, url: page.url(), inGame: await inGame(), errors: errors.length }),
         login: async ([user = TESTER.user, pass = TESTER.pass]) => {
@@ -387,10 +559,11 @@ async function daemon(flags) {
             return { ok: Math.abs(me.position[0] - x) <= 1 && Math.abs(me.position[1] - y) <= 1, position: me.position,
                 clicked: target, clientAimedAt: [aimed.x, aimed.y], errors: newErrors() };
         },
-        attack: async ([spec]) => {
+        attack: async ([spec, flag]) => {
             const target = await findTarget(spec);
             if (!target) return { ok: false, reason: 'no such monster in range', nearby: (await agent('entities', [{ radius: 30 }])).slice(0, 8) };
             const hovered = await clickEntity(target);
+            if (flag === '--quick') return { ok: hovered, target: { gid: target.gid, name: target.name } };
             await page.waitForTimeout(2500);
             const after = (await agent('entities', [{ radius: 30 }])).find(e => e.gid === target.gid) || null;
             return { ok: hovered, pickedByClient: hovered, target, after, player: await player(), chat: await agent('chat', [5]), shot: await shot('attack'), errors: newErrors() };
@@ -400,6 +573,8 @@ async function daemon(flags) {
             const level = args[1] && !args[1].startsWith('--') ? Number(args[1]) : undefined;
             const t = args.indexOf('--target'), c = args.indexOf('--cell'), b = args.indexOf('--burst');
             const burst = b >= 0 ? Number(args[b + 1]) || 6 : 0;
+            // For recording: cast and return, no screenshots and no waiting.
+            const quick = args.includes('--quick');
             const ev = args.indexOf('--every');
             const every = ev >= 0 ? Number(args[ev + 1]) || 150 : 150;
             // A previous cast still waiting for a target would take this one's
@@ -421,6 +596,7 @@ async function daemon(flags) {
                 await page.mouse.click(cell.x, cell.y);
                 clicked = { cell };
             }
+            if (quick) return { started, clicked, errors: newErrors() };
             // Effects are over in a second or two, so a burst from the moment
             // of the cast catches them where one later screenshot does not.
             const frames = [];

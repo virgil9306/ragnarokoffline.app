@@ -14,11 +14,21 @@
 // dispbottom lines reach the chat box with no "Name :" in front, so nobody can
 // forge one by talking. The lines are gathered here, joined, and handed to the
 // waiting request; they never show in chat.
+//
+// A script can also speak first, without being asked -- an NPC opening a
+// mod's window, say:
+//
+//     @@event <command> <text>
+//
+// That goes to every plugin as the client event 'server:event'.
 
 import ChatBox from 'UI/Components/ChatBox/ChatBox.js';
 import Client from 'Core/Client.js';
+import Mouse from 'Controls/MouseEventHandler.js';
 import DB from 'DB/DBManager.js';
 import ItemTable from 'DB/Items/ItemTable.js';
+import Session from 'Engine/SessionStorage.js';
+import EntityManager from 'Renderer/EntityManager.js';
 
 // ---------------------------------------------------------------------------
 // Windows
@@ -91,12 +101,32 @@ export function createWindow(plugin, spec, deps) {
 	root.addEventListener('focusout', () => { release?.(); release = null; });
 	for (const type of ['keydown', 'keyup', 'keypress']) root.addEventListener(type, event => event.stopPropagation());
 
+	// Clicking in the window must not walk the character either. The map reads
+	// every click on the page and acts on it while Mouse.intersect is set, so
+	// the pointer over the window clears it, as the client's own windows do
+	// (GUIComponent's MouseMode.STOP), and leaving or closing puts it back.
+	let covering = false;
+	const uncover = () => {
+		if (!covering) return;
+		covering = false;
+		if (!Session.FreezeUI) Mouse.intersect = true;
+		EntityManager.setOverEntity(null);
+	};
+	host.addEventListener('mouseenter', () => {
+		if (covering || !Mouse.intersect) return;
+		covering = true;
+		Mouse.intersect = false;
+		EntityManager.setOverEntity(null);
+	});
+	host.addEventListener('mouseleave', uncover);
+
 	const closers = new Set();
 	let visible = false;
 	const hide = () => {
 		if (!visible) return;
 		visible = false;
 		host.remove();
+		uncover();
 		release?.(); release = null;
 		for (const fn of closers) { try { fn(); } catch (error) { console.error(error); } }
 	};
@@ -168,17 +198,40 @@ export function itemIcon(id) {
 // ---------------------------------------------------------------------------
 
 const REPLY = /^@@reply (\d+) (\d+)\/(\d+) ?([\s\S]*)$/;
+const EVENT = /^@@event ([a-z][a-z0-9_]{1,23})(?: ([\s\S]*))?$/;
 const pending = new Map();  // id -> { parts: [], resolve, reject, timer }
 let nextId = 1;
 let installed = false;
+let onServerEvent = null;
+
+// dispbottom arrives as the player's own speech (ZC_NPC_CHAT, or
+// ZC_NOTIFY_PLAYERCHAT without a colour), and the client draws it in a bubble
+// over their head as well as in chat -- before the chat line for one packet,
+// after it for the other. Take down the bubble that shows this line, and only
+// that one, now and once the packet's handler is done.
+function hideBubble(text) {
+	const hide = () => {
+		const dialog = Session.Entity?.dialog;
+		if (dialog && dialog.text === text) dialog.remove();
+	};
+	hide();
+	queueMicrotask(hide);
+}
 
 function install() {
 	if (installed) return;
 	installed = true;
 	const addText = ChatBox.addText;
 	ChatBox.addText = function (text, ...rest) {
+		const event = typeof text === 'string' ? EVENT.exec(text) : null;
+		if (event) {
+			hideBubble(text);
+			onServerEvent?.(event[1], event[2] || '');
+			return undefined;
+		}
 		const match = typeof text === 'string' ? REPLY.exec(text) : null;
 		if (!match) return addText.call(this, text, ...rest);
+		hideBubble(text);
 		const request = pending.get(Number(match[1]));
 		if (!request) return undefined;  // late or stray: still not chat
 		const part = Number(match[2]), parts = Number(match[3]);
@@ -190,6 +243,14 @@ function install() {
 		}
 		return undefined;
 	};
+}
+
+/**
+ * Hand every @@event line to `listener(command, text)` from now on.
+ */
+export function listen(listener) {
+	install();
+	onServerEvent = listener;
 }
 
 /**
